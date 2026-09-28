@@ -243,6 +243,45 @@ void main() {
     expect(banco.listarPedidos(), isEmpty);
   });
 
+  test('sessão limpa após pedido concluído ou cancelado não expira', () async {
+    await montar();
+    await enviar('conf_confirmar');
+    expect(sessao()['etapa'], 'inicio');
+
+    banco.db.execute(
+      "UPDATE sessoes SET ultima_atividade = ? WHERE telefone = ?",
+      [
+        DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
+        '5514999999999'
+      ],
+    );
+
+    await enviar('olá');
+    expect(sessao()['etapa'], 'inicio');
+    final ultimaResposta =
+        wa.consumirMensagensSimuladas().last['texto']?.toString() ?? '';
+    expect(ultimaResposta, isNot(contains('expirou por inatividade')));
+
+    await montar();
+    await enviar('cancelar');
+    await enviar('cancelar_sim');
+    expect(sessao()['etapa'], 'inicio');
+
+    banco.db.execute(
+      "UPDATE sessoes SET ultima_atividade = ? WHERE telefone = ?",
+      [
+        DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
+        '5514999999999'
+      ],
+    );
+
+    await enviar('olá novamente');
+    final respostaAposCancelamento =
+        wa.consumirMensagensSimuladas().last['texto']?.toString() ?? '';
+    expect(
+        respostaAposCancelamento, isNot(contains('expirou por inatividade')));
+  });
+
   test('status só avança e controle de versão recusa alteração antiga',
       () async {
     await montar();

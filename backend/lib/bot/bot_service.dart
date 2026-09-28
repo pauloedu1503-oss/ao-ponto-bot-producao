@@ -207,6 +207,10 @@ class BotService {
     Map<String, dynamic> config,
   ) {
     if (sessao == null) return false;
+    // A etapa inicial não representa um pedido em andamento. Ela é mantida
+    // depois de concluir ou cancelar para receber a próxima mensagem, portanto
+    // nunca deve gerar aviso de pedido expirado.
+    if (sessao['etapa']?.toString() == 'inicio') return false;
     final ultima =
         DateTime.tryParse(sessao['ultimaAtividade']?.toString() ?? '');
     final minutos = (config['sessaoExpiraMinutos'] as num?)?.toInt() ?? 30;
