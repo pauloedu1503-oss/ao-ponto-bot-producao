@@ -5,6 +5,8 @@ services:
     env_file:
       - ./backend/.env
     working_dir: /app/backend
+    ports:
+      - "8080:8080"
     volumes:
       - ./backend/data:/app/backend/data
       - ./backend/backups:/app/backend/backups
