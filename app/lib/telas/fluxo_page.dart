@@ -335,7 +335,6 @@ class _FluxoPageState extends State<FluxoPage> {
         campo('mensagem', 'Pergunta ao cliente', linhas: 2);
         campo('botaoPix', 'Botão • PIX', linhas: 1, max: 20);
         campo('botaoDinheiro', 'Botão • Dinheiro', linhas: 1, max: 20);
-        campo('botaoCartao', 'Botão • Cartão', linhas: 1, max: 20);
         toggle('pularSeUnica', 'Pular pergunta quando existir só uma forma',
             'Se apenas uma forma estiver ativa, ela será escolhida automaticamente.');
         break;
@@ -441,7 +440,8 @@ class _FluxoPageState extends State<FluxoPage> {
         botoes = [
           '${d['botaoPix']}',
           '${d['botaoDinheiro']}',
-          '${d['botaoCartao']}'
+          'Cartão de crédito',
+          'Cartão de débito'
         ];
         break;
       case 'troco':
@@ -498,7 +498,12 @@ class _FluxoPageState extends State<FluxoPage> {
       botoes = [
         if (pagamentos['pix'] == true) d['botaoPix'].toString(),
         if (pagamentos['dinheiro'] == true) d['botaoDinheiro'].toString(),
-        if (pagamentos['cartao'] == true) d['botaoCartao'].toString()
+        if (pagamentos['credito'] == true ||
+            (pagamentos['credito'] == null && pagamentos['cartao'] == true))
+          'Cartão de crédito',
+        if (pagamentos['debito'] == true ||
+            (pagamentos['debito'] == null && pagamentos['cartao'] == true))
+          'Cartão de débito'
       ];
     } else if (chave == 'cardapio') {
       mensagens

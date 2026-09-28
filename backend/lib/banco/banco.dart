@@ -37,7 +37,8 @@ class Banco {
       _migrarConfiguracaoV13();
       _migrarMensagemPedidoEnviado();
       _sanearEstadoInicial();
-      db.execute("UPDATE push_saida SET status = 'pendente' WHERE status = 'enviando'");
+      db.execute(
+          "UPDATE push_saida SET status = 'pendente' WHERE status = 'enviando'");
       db.execute(
           "UPDATE whatsapp_saida SET status = 'incerto', erro = 'Envio interrompido por reinício' WHERE status = 'enviando'");
       db.execute('COMMIT');
@@ -92,6 +93,7 @@ class Banco {
         observacao TEXT,
         subtotal REAL NOT NULL,
         taxa_entrega REAL NOT NULL,
+        taxa_maquininha REAL NOT NULL DEFAULT 0,
         total REAL NOT NULL,
         itens_json TEXT NOT NULL,
         versao INTEGER NOT NULL DEFAULT 1,
@@ -102,6 +104,8 @@ class Banco {
 
     _adicionarColunaSeAusente('pedidos', 'mensagem_id', 'TEXT');
     _adicionarColunaSeAusente('pedidos', 'motivo_cancelamento', 'TEXT');
+    _adicionarColunaSeAusente(
+        'pedidos', 'taxa_maquininha', 'REAL NOT NULL DEFAULT 0');
     db.execute(
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_mensagem ON pedidos(mensagem_id)');
     db.execute('''CREATE TABLE IF NOT EXISTS webhook_entrada (
@@ -253,7 +257,12 @@ class Banco {
             'aliases': ['Igaraçu do Tietê', 'Igaracu do Tiete']
           },
         ],
-        'pagamentos': {'pix': true, 'dinheiro': true, 'cartao': true},
+        'pagamentos': {
+          'pix': true,
+          'dinheiro': true,
+          'credito': true,
+          'debito': true
+        },
         'chavePix': '',
         'enderecoRetirada': '',
         'permitirObservacoes': true,
@@ -718,13 +727,24 @@ class Banco {
     String? observacao,
     required double subtotal,
     required double taxaEntrega,
+    required double taxaMaquininha,
     required List<Map<String, dynamic>> itens,
   }) {
-    final calculo =
-        CalculoPedido(itens, recebimento == 'entrega' ? taxaEntrega : 0);
+    final taxaEntregaReal = recebimento == 'entrega' ? taxaEntrega : 0.0;
+    final calculoBase = CalculoPedido(itens, taxaEntregaReal);
+    final taxaMaquininhaReal = _calcularTaxaMaquininha(
+      pagamento,
+      calculoBase.subtotal + calculoBase.taxaEntrega,
+    );
+    final calculo = CalculoPedido(
+      itens,
+      taxaEntregaReal,
+      taxaMaquininha: taxaMaquininhaReal,
+    );
     if ((calculo.subtotal - subtotal).abs() > 0.001 ||
+        (calculo.taxaMaquininha - taxaMaquininha).abs() > 0.001 ||
         !{'entrega', 'retirada'}.contains(recebimento) ||
-        !{'pix', 'dinheiro', 'cartao'}.contains(pagamento) ||
+        !{'pix', 'dinheiro', 'credito', 'debito'}.contains(pagamento) ||
         (trocoPara != null &&
             (!trocoPara.isFinite || trocoPara < calculo.total))) {
       throw ArgumentError('Pedido inconsistente. Revise os valores.');
@@ -736,15 +756,17 @@ class Banco {
     }
     subtotal = calculo.subtotal;
     taxaEntrega = calculo.taxaEntrega;
+    taxaMaquininha = calculo.taxaMaquininha;
     final total = calculo.total;
     final agora = agoraIso();
     db.execute('''
       INSERT INTO pedidos (
         telefone, cliente_nome, status, recebimento, endereco, cep_entrega,
         cidade_entrega, uf_entrega, endereco_validado, pagamento,
-        troco_para, observacao, subtotal, taxa_entrega, total, itens_json,
+        troco_para, observacao, subtotal, taxa_entrega, taxa_maquininha,
+        total, itens_json,
         versao, criado_em, atualizado_em
-      ) VALUES (?, ?, 'novo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      ) VALUES (?, ?, 'novo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     ''', [
       telefone,
       clienteNome,
@@ -759,6 +781,7 @@ class Banco {
       observacao,
       subtotal,
       taxaEntrega,
+      taxaMaquininha,
       total,
       jsonEncode(itens),
       agora,
@@ -871,12 +894,23 @@ class Banco {
         'observacao': r['observacao'],
         'subtotal': r['subtotal'],
         'taxaEntrega': r['taxa_entrega'],
+        'taxaMaquininha': r['taxa_maquininha'],
         'total': r['total'],
         'itens': jsonDecode(r['itens_json'] as String),
         'versao': r['versao'],
         'criadoEm': r['criado_em'],
         'atualizadoEm': r['atualizado_em'],
       };
+
+  double _calcularTaxaMaquininha(String pagamento, double base) {
+    final valorPorFaixa = switch (pagamento) {
+      'credito' => 2.0,
+      'debito' => 1.0,
+      _ => 0.0,
+    };
+    if (valorPorFaixa == 0 || base <= 0) return 0;
+    return (base / 50).ceil() * valorPorFaixa;
+  }
 
   bool iniciarProcessamentoMensagem(String id) {
     final rows = db.select(

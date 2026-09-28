@@ -1266,11 +1266,14 @@ class BotService {
         'titulo': _textoFluxo('pagamento', 'botaoDinheiro', 'Dinheiro')
       });
     }
-    if (pagamentos['cartao'] == true) {
-      opcoes.add({
-        'id': 'pag_cartao',
-        'titulo': _textoFluxo('pagamento', 'botaoCartao', 'Cartão')
-      });
+    final cartaoLegado = pagamentos['cartao'] == true;
+    if (pagamentos['credito'] == true ||
+        (pagamentos['credito'] == null && cartaoLegado)) {
+      opcoes.add({'id': 'pag_credito', 'titulo': 'Cartão de crédito'});
+    }
+    if (pagamentos['debito'] == true ||
+        (pagamentos['debito'] == null && cartaoLegado)) {
+      opcoes.add({'id': 'pag_debito', 'titulo': 'Cartão de débito'});
     }
     return opcoes;
   }
@@ -1332,15 +1335,19 @@ class BotService {
           ])
             ? 'pag_dinheiro'
             : _correspondeIntencao(entrada, [
-                'cartao',
                 'credito',
-                'debito',
                 'cartao de credito',
-                'cartao de debito',
-                'pagar no cartao',
+                'pagar no credito',
+                'pag_cartao',
               ])
-                ? 'pag_cartao'
-                : entrada;
+                ? 'pag_credito'
+                : _correspondeIntencao(entrada, [
+                    'debito',
+                    'cartao de debito',
+                    'pagar no debito',
+                  ])
+                    ? 'pag_debito'
+                    : entrada;
     final opcao = _acharOpcaoSimples(entradaNatural, opcoes);
     if (opcao == null || !atuais.any((e) => e['id'] == opcao['id'])) {
       await _mostrarPagamentos(msg, config, dados);
@@ -1350,7 +1357,8 @@ class BotService {
     final pagamento = switch (opcao['id']) {
       'pag_pix' => 'pix',
       'pag_dinheiro' => 'dinheiro',
-      'pag_cartao' => 'cartao',
+      'pag_credito' => 'credito',
+      'pag_debito' => 'debito',
       _ => '',
     };
     if (pagamento.isEmpty) {
@@ -1557,6 +1565,9 @@ class BotService {
     linhas.add('Subtotal: ${moeda(calculo.subtotal)}');
     if (calculo.taxaEntrega > 0) {
       linhas.add('Entrega: ${moeda(calculo.taxaEntrega)}');
+    }
+    if (calculo.taxaMaquininha > 0) {
+      linhas.add('Taxa da maquininha: ${moeda(calculo.taxaMaquininha)}');
     }
     linhas.add('*TOTAL: ${moeda(calculo.total)}*');
 
@@ -1774,6 +1785,7 @@ class BotService {
       observacao: dados['observacao']?.toString(),
       subtotal: calculo.subtotal,
       taxaEntrega: calculo.taxaEntrega,
+      taxaMaquininha: calculo.taxaMaquininha,
       itens: calculo.itens,
     );
 
@@ -1809,7 +1821,18 @@ class BotService {
     final taxa = dados['recebimento'] == 'entrega'
         ? (dados['taxaEntregaCongelada'] as num?)?.toDouble() ?? 0
         : 0.0;
-    return CalculoPedido(itens, taxa);
+    final calculoBase = CalculoPedido(itens, taxa);
+    final pagamento = dados['pagamento']?.toString() ?? '';
+    final valorPorFaixa = switch (pagamento) {
+      'credito' => 2.0,
+      'debito' => 1.0,
+      _ => 0.0,
+    };
+    final taxaMaquininha = valorPorFaixa == 0
+        ? 0.0
+        : ((calculoBase.subtotal + calculoBase.taxaEntrega) / 50).ceil() *
+            valorPorFaixa;
+    return CalculoPedido(itens, taxa, taxaMaquininha: taxaMaquininha);
   }
 
   List<String> _itensIndisponiveis(Map<String, dynamic> dados) {
@@ -1884,7 +1907,10 @@ class BotService {
     return switch (pagamento) {
       'pix' => pagamentos['pix'] == true,
       'dinheiro' => pagamentos['dinheiro'] == true,
-      'cartao' => pagamentos['cartao'] == true,
+      'credito' => pagamentos['credito'] == true ||
+          (pagamentos['credito'] == null && pagamentos['cartao'] == true),
+      'debito' => pagamentos['debito'] == true ||
+          (pagamentos['debito'] == null && pagamentos['cartao'] == true),
       _ => false,
     };
   }
@@ -2087,7 +2113,8 @@ class BotService {
       'recebimento' => 'Escolha *Entrega* ou *Retirada*.',
       'endereco' => 'Envie rua, número, bairro e complemento ou referência.',
       'cidade_entrega' => 'Escolha a cidade da entrega.',
-      'pagamento' => 'Escolha PIX, dinheiro ou cartão.',
+      'pagamento' =>
+        'Escolha PIX, dinheiro, cartão de crédito ou cartão de débito.',
       'troco' => 'Digite *não* ou o valor para o troco. Ex.: *50*.',
       'observacao' =>
         'Escreva a observação ou digite *não* se não tiver nenhuma.',
@@ -2298,8 +2325,10 @@ class BotService {
         return 'PIX';
       case 'dinheiro':
         return 'Dinheiro';
-      case 'cartao':
-        return 'Cartão';
+      case 'credito':
+        return 'Cartão de crédito';
+      case 'debito':
+        return 'Cartão de débito';
       default:
         return valor;
     }

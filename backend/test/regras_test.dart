@@ -43,7 +43,7 @@ void main() {
   Map<String, dynamic> sessao() => banco.obterSessao('5514999999999')!;
 
   Future<void> montar(
-      {bool entrega = false, String pagamento = 'pag_cartao'}) async {
+      {bool entrega = false, String pagamento = 'pag_credito'}) async {
     for (final t in [
       'inicio_pedido',
       '1',
@@ -113,7 +113,8 @@ void main() {
     ]);
     expect(banco.listarPedidos(), hasLength(1));
     final p = banco.listarPedidos().single;
-    expect(p['total'], 16);
+    expect(p['total'], 18);
+    expect(p['taxaMaquininha'], 2);
     expect(p['taxaEntrega'], 0);
     expect(p['endereco'], 'Rua da Loja, 10');
     expect((sessao()['dados'] as Map)['itens'], isEmpty);
@@ -148,10 +149,10 @@ void main() {
     configurar((d) => d['cidadesEntrega'][0]['taxa'] = 99.0);
     await enviar('1');
     expect(sessao()['dados']['taxaEntregaCongelada'], 8);
-    await enviar('pag_cartao');
+    await enviar('pag_credito');
     await enviar('não');
     await enviar('conf_confirmar');
-    expect(banco.listarPedidos().single['total'], 16);
+    expect(banco.listarPedidos().single['total'], 18);
   });
 
   test('cidade desativada impede confirmação', () async {
@@ -174,7 +175,7 @@ void main() {
 
   test('pagamento desativado exige nova escolha', () async {
     await montar();
-    configurar((d) => d['pagamentos']['cartao'] = false);
+    configurar((d) => d['pagamentos']['credito'] = false);
     await enviar('conf_confirmar');
     expect(sessao()['etapa'], 'pagamento');
     expect(banco.listarPedidos(), isEmpty);
@@ -219,6 +220,8 @@ void main() {
   test('cancelamento e humano limpam carrinho', () async {
     await montar();
     await enviar('0');
+    expect(sessao()['etapa'], 'confirmar_cancelamento');
+    await enviar('cancelar_sim');
     expect(sessao()['dados']['itens'], isEmpty);
     await montar();
     await enviar('atendente');

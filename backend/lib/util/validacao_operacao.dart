@@ -19,7 +19,7 @@ class ValidacaoOperacao {
     }
     final pagamentosValidos = dados['pagamentos'];
     if (pagamentosValidos is! Map ||
-        !['pix', 'dinheiro', 'cartao']
+        !['pix', 'dinheiro', 'credito', 'debito', 'cartao']
             .any((p) => pagamentosValidos[p] == true)) {
       throw ArgumentError(
           'Configurações > Pagamento: ative pelo menos uma forma.');
@@ -222,8 +222,10 @@ class ValidacaoOperacao {
         Map<String, dynamic>.from(config['pagamentos'] as Map? ?? {});
     final pix = pagamentos['pix'] == true;
     final dinheiro = pagamentos['dinheiro'] == true;
-    final cartao = pagamentos['cartao'] == true;
-    if (!pix && !dinheiro && !cartao) {
+    final credito = pagamentos['credito'] == true;
+    final debito = pagamentos['debito'] == true;
+    final cartaoLegado = pagamentos['cartao'] == true;
+    if (!pix && !dinheiro && !credito && !debito && !cartaoLegado) {
       problemas.add('Configurações > Pagamento: ative uma forma');
     }
     if (pix && (config['chavePix']?.toString().trim().isEmpty ?? true)) {

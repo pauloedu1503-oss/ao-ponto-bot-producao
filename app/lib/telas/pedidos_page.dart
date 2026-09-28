@@ -277,6 +277,9 @@ class _DetalhePedidoState extends State<_DetalhePedido> {
               if ((pedido['taxaEntrega'] as num?)?.toDouble() != 0)
                 _linha('Entrega', dinheiro(pedido['taxaEntrega']),
                     destaque: false),
+              if ((pedido['taxaMaquininha'] as num?)?.toDouble() != 0)
+                _linha('Taxa da maquininha', dinheiro(pedido['taxaMaquininha']),
+                    destaque: false),
               _linha('TOTAL', dinheiro(pedido['total']), destaque: true),
             ]),
           ),
@@ -432,6 +435,8 @@ String _nomeStatus(String s) => switch (s) {
 String _nomePagamento(String s) => switch (s) {
       'pix' => 'PIX',
       'dinheiro' => 'Dinheiro',
+      'credito' => 'Cartão de crédito',
+      'debito' => 'Cartão de débito',
       'cartao' => 'Cartão',
       _ => s,
     };

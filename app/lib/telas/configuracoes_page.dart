@@ -98,8 +98,20 @@ class ConfiguracoesPage extends StatelessWidget {
                         context, 'PIX', 'pix', pagamentos['pix'] == true),
                     _pagamentoSwitch(context, 'Dinheiro', 'dinheiro',
                         pagamentos['dinheiro'] == true),
-                    _pagamentoSwitch(context, 'Cartão na entrega', 'cartao',
-                        pagamentos['cartao'] == true),
+                    _pagamentoSwitch(
+                        context,
+                        'Cartão de crédito',
+                        'credito',
+                        pagamentos['credito'] == true ||
+                            (pagamentos['credito'] == null &&
+                                pagamentos['cartao'] == true)),
+                    _pagamentoSwitch(
+                        context,
+                        'Cartão de débito',
+                        'debito',
+                        pagamentos['debito'] == true ||
+                            (pagamentos['debito'] == null &&
+                                pagamentos['cartao'] == true)),
                     _editTile(context, 'Chave PIX',
                         d['chavePix']?.toString() ?? '', 'chavePix'),
                   ]),
@@ -199,6 +211,7 @@ class ConfiguracoesPage extends StatelessWidget {
           final dados = copiaMapa(_dados);
           final p =
               Map<String, dynamic>.from(dados['pagamentos'] as Map? ?? {});
+          p.remove('cartao');
           p[chave] = v;
           dados['pagamentos'] = p;
           try {
@@ -297,53 +310,6 @@ class ConfiguracoesPage extends StatelessWidget {
       cidade['taxa'] = double.parse(valores['taxa']!.replaceAll(',', '.'));
       await controller.salvarConfigDados(dados, versaoEsperada: versao);
     });
-  }
-
-  Future<void> _trocarServidor(BuildContext context) async {
-    final c = TextEditingController(text: controller.api.baseUrl);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Servidor'),
-        content: SizedBox(
-            width: 430,
-            child: TextField(
-                controller: c,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                    hintText: 'http://192.168.0.10:8080'))),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, c.text.trim()),
-              child: const Text('Trocar')),
-        ],
-      ),
-    );
-    c.dispose();
-    if (result == null || result.isEmpty || result == controller.api.baseUrl) {
-      return;
-    }
-    if (!context.mounted) return;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Trocar servidor?'),
-        content:
-            const Text('Você será desconectado e precisará entrar novamente.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Trocar')),
-        ],
-      ),
-    );
-    if (ok == true) await controller.trocarServidor(result);
   }
 
   Future<void> _backup(BuildContext context) async {
