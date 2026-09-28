@@ -10,7 +10,10 @@ Map<String, dynamic> copiaMapa(Map original) =>
     Map<String, dynamic>.from(jsonDecode(jsonEncode(original)) as Map);
 
 class AppController extends ChangeNotifier {
-  ApiService api = ApiService(baseUrl: 'http://127.0.0.1:8080');
+  static const String servidorProducao =
+      'https://ao-ponto-bot-producao.suagestao.blitz.cloud';
+
+  ApiService api = ApiService(baseUrl: servidorProducao);
 
   bool carregando = true;
   bool autenticado = false;
@@ -57,9 +60,8 @@ class AppController extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance()
           .timeout(const Duration(seconds: 4));
-      final base = prefs.getString('server_url') ?? 'http://127.0.0.1:8080';
       final token = prefs.getString('token');
-      api = ApiService(baseUrl: base, token: token);
+      api = ApiService(baseUrl: servidorProducao, token: token);
 
       if (token != null && token.isNotEmpty) {
         try {
@@ -82,12 +84,12 @@ class AppController extends ChangeNotifier {
       }
     } on TimeoutException {
       autenticado = false;
-      api = ApiService(baseUrl: 'http://127.0.0.1:8080');
+      api = ApiService(baseUrl: servidorProducao);
       erroGlobal =
           'A sessão salva demorou para carregar. O painel foi aberto em modo de login.';
     } catch (_) {
       autenticado = false;
-      api = ApiService(baseUrl: 'http://127.0.0.1:8080');
+      api = ApiService(baseUrl: servidorProducao);
       erroGlobal =
           'Não foi possível restaurar a sessão anterior. Entre novamente normalmente.';
     } finally {
@@ -104,31 +106,28 @@ class AppController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance()
           .timeout(const Duration(seconds: 4));
       await prefs.remove('token');
-      await prefs.remove('server_url');
     } catch (_) {}
-    api = ApiService(baseUrl: 'http://127.0.0.1:8080');
+    api = ApiService(baseUrl: servidorProducao);
     autenticado = false;
     erroGlobal = null;
     notifyListeners();
   }
 
-  Future<void> login(String serverUrl, String senha) async {
+  Future<void> login(String senha) async {
     // O carregamento inicial do app usa `carregando`. Durante o login, a própria
     // LoginPage mostra o progresso no botão. Manter `carregando = true` aqui
     // escondia a tela inteira e podia deixar apenas um spinner caso uma requisição
     // de rede demorasse ou falhasse.
     erroGlobal = null;
     try {
-      final normalized = serverUrl.trim().replaceAll(RegExp(r'/+$'), '');
       _geracao++;
       api.fechar();
-      api = ApiService(baseUrl: normalized);
+      api = ApiService(baseUrl: servidorProducao);
       await api.health();
       final result = await api.login(senha);
       api.token = result['token']?.toString();
       final prefs = await SharedPreferences.getInstance()
           .timeout(const Duration(seconds: 4));
-      await prefs.setString('server_url', normalized);
       await prefs.setString('token', api.token!);
       await carregarTudo();
       autenticado = true;

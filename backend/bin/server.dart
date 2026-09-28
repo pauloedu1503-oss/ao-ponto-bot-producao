@@ -31,7 +31,7 @@ Future<void> main() async {
     return;
   }
   final banco = Banco();
-  final auth = AuthService();
+  final auth = AuthService(banco);
   final whatsapp = WhatsAppService(banco);
   final push = PushService(banco);
   final bot = BotService(banco, whatsapp);

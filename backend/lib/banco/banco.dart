@@ -172,6 +172,13 @@ class Banco {
     ''');
 
     db.execute('''
+      CREATE TABLE IF NOT EXISTS auth_tokens (
+        token TEXT PRIMARY KEY,
+        expira_em TEXT NOT NULL
+      );
+    ''');
+
+    db.execute('''
       CREATE TABLE IF NOT EXISTS push_saida (
         pedido_id INTEGER PRIMARY KEY,
         titulo TEXT NOT NULL,

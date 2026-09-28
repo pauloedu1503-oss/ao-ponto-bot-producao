@@ -146,14 +146,6 @@ class ConfiguracoesPage extends StatelessWidget {
                             fontSize: 18, fontWeight: FontWeight.w900)),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.dns_outlined),
-                      title: const Text('Servidor'),
-                      subtitle: Text(controller.api.baseUrl),
-                      trailing: const Icon(Icons.edit_outlined),
-                      onTap: () => _trocarServidor(context),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.backup_outlined),
                       title: const Text('Gerar backup'),
                       subtitle: const Text(

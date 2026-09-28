@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import '../util/env.dart';
+import '../banco/banco.dart';
 
 enum LoginStatus { sucesso, senhaInvalida, muitasTentativas }
 
@@ -40,6 +41,9 @@ class AuthService {
 
   final Map<String, DateTime> _tokens = {};
   final Map<String, List<DateTime>> _falhas = {};
+  final Banco? banco;
+
+  AuthService([this.banco]);
 
   LoginResult login(String senha, String origem) {
     _limpar();
@@ -90,8 +94,11 @@ class AuthService {
 
       final token = base64UrlEncode(bytes).replaceAll('=', '');
 
-      _tokens[token] = agora.add(
-        const Duration(days: 30),
+      final expira = agora.add(const Duration(days: 30));
+      _tokens[token] = expira;
+      banco?.db.execute(
+        'INSERT OR REPLACE INTO auth_tokens(token, expira_em) VALUES (?, ?)',
+        [token, expira.toIso8601String()],
       );
 
       return LoginResult.sucesso(token);
@@ -111,7 +118,17 @@ class AuthService {
       return false;
     }
 
-    final expira = _tokens[token];
+    var expira = _tokens[token];
+    if (expira == null && banco != null) {
+      final rows = banco!.db.select(
+        'SELECT expira_em FROM auth_tokens WHERE token = ? LIMIT 1',
+        [token],
+      );
+      if (rows.isNotEmpty) {
+        expira = DateTime.tryParse(rows.first['expira_em'] as String);
+        if (expira != null) _tokens[token] = expira;
+      }
+    }
 
     if (expira == null) {
       return false;
@@ -119,6 +136,7 @@ class AuthService {
 
     if (DateTime.now().isAfter(expira)) {
       _tokens.remove(token);
+      banco?.db.execute('DELETE FROM auth_tokens WHERE token = ?', [token]);
       return false;
     }
 
@@ -127,6 +145,7 @@ class AuthService {
 
   void logout(String token) {
     _tokens.remove(token);
+    banco?.db.execute('DELETE FROM auth_tokens WHERE token = ?', [token]);
   }
 
   void _limpar() {
@@ -134,6 +153,10 @@ class AuthService {
 
     _tokens.removeWhere(
       (_, expira) => agora.isAfter(expira),
+    );
+    banco?.db.execute(
+      'DELETE FROM auth_tokens WHERE expira_em < ?',
+      [agora.toIso8601String()],
     );
 
     for (final item in _falhas.entries.toList()) {

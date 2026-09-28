@@ -10,34 +10,26 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  late final TextEditingController server;
   final senha = TextEditingController();
   bool ocultar = true;
   bool enviando = false;
 
   @override
-  void initState() {
-    super.initState();
-    server = TextEditingController(text: widget.controller.api.baseUrl);
-  }
-
-  @override
   void dispose() {
-    server.dispose();
     senha.dispose();
     super.dispose();
   }
 
   Future<void> entrar() async {
     if (enviando) return;
-    if (server.text.trim().isEmpty || senha.text.isEmpty) {
+    if (senha.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Informe o servidor e a senha.')));
+          const SnackBar(content: Text('Informe a senha.')));
       return;
     }
     setState(() => enviando = true);
     try {
-      await widget.controller.login(server.text, senha.text);
+      await widget.controller.login(senha.text);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -94,16 +86,6 @@ class _LoginPageState extends State<LoginPage> {
                       const SizedBox(height: 12),
                     ],
                     TextField(
-                      controller: server,
-                      keyboardType: TextInputType.url,
-                      decoration: const InputDecoration(
-                        labelText: 'Endereço do servidor',
-                        hintText: 'http://192.168.0.10:8080',
-                        prefixIcon: Icon(Icons.dns_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
                       controller: senha,
                       obscureText: ocultar,
                       onSubmitted: (_) => entrar(),
@@ -132,25 +114,6 @@ class _LoginPageState extends State<LoginPage> {
                             : const Icon(Icons.login),
                         label: const Text('ENTRAR'),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextButton.icon(
-                      onPressed: enviando
-                          ? null
-                          : () async {
-                              await widget.controller.limparSessaoLocal();
-                              if (!mounted) return;
-                              server.text = widget.controller.api.baseUrl;
-                              senha.clear();
-                            },
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('LIMPAR SESSÃO SALVA'),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'No PC, use 127.0.0.1 se o backend estiver no mesmo computador. No celular, use o IP do PC ou a URL HTTPS do servidor.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: Colors.black54),
                     ),
                   ],
                 ),
