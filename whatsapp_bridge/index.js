@@ -747,6 +747,7 @@ async function conectar() {
   });
 
   sockAtual = sock;
+  let pareamentoSolicitado = false;
 
   sock.ev.on(
     'creds.update',
@@ -771,12 +772,42 @@ async function conectar() {
 
   sock.ev.on(
     'connection.update',
-    ({
+    async ({
       connection,
       lastDisconnect,
       qr,
     }) => {
       if (qr) {
+        const numeroPareamento =
+          (process.env.WHATSAPP_PHONE_NUMBER || '')
+            .replace(/\D/g, '');
+
+        if (numeroPareamento && !pareamentoSolicitado) {
+          pareamentoSolicitado = true;
+
+          try {
+            const codigo = await sock.requestPairingCode(
+              numeroPareamento,
+            );
+
+            console.log('');
+            console.log('========================================');
+            console.log(' CODIGO DE CONEXAO DO WHATSAPP');
+            console.log('========================================');
+            console.log('');
+            console.log(codigo);
+            console.log('');
+            console.log('WhatsApp > Aparelhos conectados');
+            console.log('> Conectar com numero de telefone');
+            console.log('');
+          } catch (erro) {
+            pareamentoSolicitado = false;
+            console.error('Falha ao gerar codigo de conexao:', erro.message);
+          }
+
+          return;
+        }
+
         console.clear();
 
         console.log(
