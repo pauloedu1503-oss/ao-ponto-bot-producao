@@ -176,8 +176,7 @@ class BotService {
         await _iniciar(
           msg,
           config,
-          aviso: _textoFluxo('sistema', 'sessaoExpirada',
-              '⏱️ Seu pedido anterior expirou por falta de atividade. Vamos começar novamente.'),
+          aviso: '⏱️ Seu pedido anterior expirou por inatividade.',
         );
         banco.finalizarMensagem(msg.id);
         return;
@@ -301,18 +300,15 @@ class BotService {
       return;
     }
 
-    final mensagens =
-        Map<String, dynamic>.from(config['mensagens'] as Map? ?? {});
-    final boas = (mensagens['boasVindas'] ?? 'Olá! 👋').toString();
-    final prefixo = aviso == null ? '' : '$aviso\n\n';
-    const guia = '💡 *COMANDOS DURANTE O PEDIDO*\n'
-        '↩️ Digite *VOLTAR* para retornar à etapa anterior.\n'
-        '❌ Digite *CANCELAR* para cancelar o pedido atual.\n'
-        '👤 Digite *ATENDENTE* para falar com nossa equipe.\n\n'
-        'Você também pode escrever essas opções do seu jeito que eu vou entender. 😊';
+    final prefixo = aviso == null ? '' : '$aviso\n';
     await whatsapp.enviarBotoes(
       msg.telefone,
-      '${prefixo}🍱 *${config['nomeEstabelecimento']}*\n\n$boas\n\n$guia\n\n${_textoFluxo('inicio', 'mensagem', 'Como podemos ajudar?')}',
+      '${prefixo}🍱 *${config['nomeEstabelecimento']}*\n'
+      'Olá! 👋 O que deseja?\n'
+      '1️⃣ Fazer pedido\n'
+      '2️⃣ Ver cardápio\n'
+      '3️⃣ Falar com atendente\n\n'
+      '💡 Durante o pedido, você pode usar *VOLTAR*, *CANCELAR* ou *ATENDENTE* quando precisar.',
       _botoesInicio(),
     );
   }
