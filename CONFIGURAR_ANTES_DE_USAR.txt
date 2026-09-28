@@ -1,0 +1,41 @@
+AO PONTO BOT V1.3.1 - PASSO A PASSO CURTO
+
+1) Execute PREPARAR_PROJETO.bat
+
+2) Abra backend\.env e troque:
+   ADMIN_PASSWORD=troque-esta-senha
+
+3) Inicie INICIAR_BACKEND.bat
+
+4) No PC com pouco espaco, use RODAR_APP_WEB.bat
+   Servidor: http://127.0.0.1:8080
+   Senha: a senha do passo 2
+
+5) No painel configure ANTES de ativar o bot:
+   - endereco de retirada, se Retirada estiver ativa
+   - cidades e taxas de entrega (Barra Bonita R$8 / Igaraçu do Tietê R$10)
+   - chave PIX, se PIX estiver ativo
+   - pagamentos
+   - cardapio
+   - horarios
+   - mensagens
+
+6) Coloque o bot em ATENDENDO.
+   O painel vai avisar se estiver faltando algo essencial.
+
+7) Teste usando SIMULAR_BOT.bat
+   NOVO = reiniciar conversa de teste
+   0 = cancelar pedido
+   voltar = voltar uma etapa
+   nao = nenhuma observacao / sem troco
+
+8) Rode VALIDAR_PROJETO.bat
+
+9) So depois conecte a WhatsApp Cloud API.
+
+IMPORTANTE:
+- Esgotado e Fechado descartam pedidos automaticos ainda nao confirmados.
+- Pausado preserva o pedido enquanto a sessao nao expirar.
+- Retomar atendimento humano sempre volta para o menu inicial.
+
+Na entrega, o cliente informa endereco natural e escolhe Barra Bonita ou Igaracu do Tiete. A taxa vem da cidade escolhida. Confira a cidade do endereco ao preparar a entrega.

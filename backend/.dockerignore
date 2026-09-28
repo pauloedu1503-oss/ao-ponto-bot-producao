@@ -1,0 +1,6 @@
+.env
+firebase-service-account.json
+data/
+backups/
+.dart_tool/
+build/

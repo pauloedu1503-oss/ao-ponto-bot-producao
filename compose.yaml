@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    working_dir: /app/backend
+    volumes:
+      - ./backend/data:/app/backend/data
+      - ./backend/backups:/app/backend/backups
+    restart: unless-stopped
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+
+  whatsapp:
+    build:
+      context: ./whatsapp_bridge
+    working_dir: /app/whatsapp_bridge
+    env_file:
+      - ./backend/.env
+    environment:
+      BACKEND_URL: http://backend:8080
+      WHATSAPP_AUTH_PATH: /app/whatsapp_bridge/auth_info
+      BRIDGE_CONTACTS_PATH: /app/whatsapp_bridge/storage/bridge_contacts.json
+    volumes:
+      - ./whatsapp_bridge/auth_info:/app/whatsapp_bridge/auth_info
+      - ./whatsapp_bridge/storage:/app/whatsapp_bridge/storage
+    restart: unless-stopped
+    depends_on:
+      - backend
