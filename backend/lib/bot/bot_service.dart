@@ -292,9 +292,14 @@ class BotService {
         Map<String, dynamic>.from(config['mensagens'] as Map? ?? {});
     final boas = (mensagens['boasVindas'] ?? 'Olá! 👋').toString();
     final prefixo = aviso == null ? '' : '$aviso\n\n';
+    const guia = '💡 *COMANDOS DURANTE O PEDIDO*\n'
+        '↩️ Digite *VOLTAR* para retornar à etapa anterior.\n'
+        '❌ Digite *CANCELAR* para cancelar o pedido atual.\n'
+        '👤 Digite *ATENDENTE* para falar com nossa equipe.\n\n'
+        'Você também pode escrever essas opções do seu jeito que eu vou entender. 😊';
     await whatsapp.enviarBotoes(
       msg.telefone,
-      '${prefixo}🍱 *${config['nomeEstabelecimento']}*\n\n$boas\n\n${_textoFluxo('inicio', 'mensagem', 'Como podemos ajudar?')}',
+      '${prefixo}🍱 *${config['nomeEstabelecimento']}*\n\n$boas\n\n$guia\n\n${_textoFluxo('inicio', 'mensagem', 'Como podemos ajudar?')}',
       _botoesInicio(),
     );
   }
@@ -1849,16 +1854,64 @@ class BotService {
   bool _corresponde(String entrada, List<String> opcoes) =>
       opcoes.any((o) => entrada == _normalizar(o));
 
-  bool _ehComandoCancelar(String entrada) =>
-      _corresponde(entrada, ['0', 'cancelar', 'conf_cancelar']);
+  bool _ehComandoCancelar(String entrada) => _correspondeIntencao(entrada, [
+        '0',
+        'cancelar',
+        'cancela',
+        'cancelar pedido',
+        'cancela pedido',
+        'cancelar meu pedido',
+        'cancela meu pedido',
+        'quero cancelar',
+        'pode cancelar',
+        'desistir do pedido',
+        'desisti do pedido',
+        'nao quero mais',
+        'conf_cancelar',
+      ]);
 
-  bool _ehComandoHumano(String entrada) =>
-      _corresponde(entrada, ['humano', 'atendente', 'inicio_humano']);
+  bool _ehComandoHumano(String entrada) => _correspondeIntencao(entrada, [
+        'humano',
+        'atendente',
+        'inicio_humano',
+        'falar com atendente',
+        'falar com um atendente',
+        'quero falar com atendente',
+        'quero falar com um atendente',
+        'chamar atendente',
+        'chama atendente',
+        'atendimento humano',
+        'falar com alguem',
+        'quero falar com alguem',
+        'preciso de um atendente',
+        'preciso de ajuda humana',
+      ]);
 
   // Não usamos mais o número 9 como comando global. Quantidade pode ser 9 e
   // listas podem ter 9/10 opções. A palavra “voltar” não conflita com números.
-  bool _ehComandoVoltar(String entrada) =>
-      _corresponde(entrada, ['voltar', 'volta', 'cmd_voltar']);
+  bool _ehComandoVoltar(String entrada) => _correspondeIntencao(entrada, [
+        'voltar',
+        'volta',
+        'volte',
+        'cmd_voltar',
+        'quero voltar',
+        'pode voltar',
+        'voltar etapa',
+        'voltar uma etapa',
+        'etapa anterior',
+        'opcao anterior',
+        'resposta anterior',
+        'escolhi errado',
+        'digitei errado',
+      ]);
+
+  bool _correspondeIntencao(String entrada, List<String> intencoes) {
+    final texto = _normalizar(entrada)
+        .replaceFirst(RegExp(r'^por favor '), '')
+        .replaceFirst(RegExp(r'^eu '), '')
+        .replaceFirst(RegExp(r' por favor$'), '');
+    return intencoes.any((intencao) => texto == _normalizar(intencao));
+  }
 
   Future<void> _voltar(
     MensagemWhatsApp msg,
@@ -2014,6 +2067,8 @@ class BotService {
         .replaceAll('õ', 'o')
         .replaceAll('ú', 'u')
         .replaceAll('ç', 'c')
+        .replaceAll(RegExp(r'[^a-z0-9_]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
 
