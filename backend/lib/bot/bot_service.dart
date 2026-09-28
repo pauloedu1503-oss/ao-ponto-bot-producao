@@ -130,19 +130,26 @@ class BotService {
         return;
       }
       final entrada = _normalizar(msg.entrada);
+      if (sessao?['etapa'] == 'confirmar_cancelamento') {
+        await _tratarConfirmarCancelamento(msg, sessao!, entrada);
+        banco.finalizarMensagem(msg.id);
+        return;
+      }
       if (_ehComandoAjuda(entrada)) {
         await _responderAjuda(msg, sessao);
         banco.finalizarMensagem(msg.id);
         return;
       }
       if (_ehComandoCancelar(entrada)) {
-        _salvarInicioLimpo(msg.telefone, msg.nome);
-        await whatsapp.enviarBotoes(
-          msg.telefone,
-          _textoFluxo('sistema', 'pedidoCancelado',
-              'Pedido cancelado. 🙂\nQuando quiser começar novamente, escolha uma opção:'),
-          _botoesInicio(),
-        );
+        if (sessao != null && sessao['etapa'] != 'inicio') {
+          await _pedirConfirmacaoCancelamento(msg, sessao);
+        } else {
+          await whatsapp.enviarBotoes(
+            msg.telefone,
+            'Você ainda não iniciou um pedido. Escolha uma opção:',
+            _botoesInicio(),
+          );
+        }
         banco.finalizarMensagem(msg.id);
         return;
       }
@@ -176,7 +183,8 @@ class BotService {
         return;
       }
 
-      if (sessao != null && _ehComandoVoltar(entrada)) {
+      if (sessao != null &&
+          (_ehComandoVoltar(entrada) || _ehComandoCorrigir(entrada))) {
         await _voltar(msg, config, sessao);
         banco.finalizarMensagem(msg.id);
         return;
@@ -404,6 +412,9 @@ class BotService {
         break;
       case 'confirmacao':
         await _tratarConfirmacao(msg, config, dados, entrada);
+        break;
+      case 'confirmar_cancelamento':
+        await _tratarConfirmarCancelamento(msg, sessao, entrada);
         break;
       default:
         banco.excluirSessao(msg.telefone);
@@ -1966,6 +1977,100 @@ class BotService {
         'o que faco',
         'como funciona',
       ]);
+
+  bool _ehComandoCorrigir(String entrada) => _correspondeIntencao(entrada, [
+        'corrigir',
+        'quero corrigir',
+        'preciso corrigir',
+        'alterar resposta',
+        'mudar resposta',
+        'respondi errado',
+        'marquei errado',
+        'quero alterar',
+        'quero mudar',
+      ]);
+
+  Future<void> _pedirConfirmacaoCancelamento(
+    MensagemWhatsApp msg,
+    Map<String, dynamic> sessao,
+  ) async {
+    final dados = Map<String, dynamic>.from(sessao['dados'] as Map? ?? {});
+    dados['_etapaAntesCancelamento'] = sessao['etapa']?.toString() ?? 'inicio';
+    banco.salvarSessao(
+      telefone: msg.telefone,
+      nome: msg.nome,
+      etapa: 'confirmar_cancelamento',
+      dados: dados,
+    );
+    await whatsapp.enviarBotoes(
+      msg.telefone,
+      '⚠️ Tem certeza de que deseja cancelar o pedido atual?',
+      const [
+        {'id': 'cancelar_sim', 'titulo': 'Sim, cancelar'},
+        {'id': 'cancelar_nao', 'titulo': 'Continuar pedido'},
+      ],
+    );
+  }
+
+  Future<void> _tratarConfirmarCancelamento(
+    MensagemWhatsApp msg,
+    Map<String, dynamic> sessao,
+    String entrada,
+  ) async {
+    final dados = Map<String, dynamic>.from(sessao['dados'] as Map? ?? {});
+    final confirmou = _correspondeIntencao(entrada, [
+      'cancelar_sim',
+      'sim',
+      'sim cancelar',
+      'confirmar cancelamento',
+      'pode cancelar',
+    ]);
+    final continuou = _correspondeIntencao(entrada, [
+      'cancelar_nao',
+      'nao',
+      'continuar pedido',
+      'continuar',
+      'nao cancelar',
+      'manter pedido',
+    ]);
+
+    if (confirmou) {
+      _salvarInicioLimpo(msg.telefone, msg.nome);
+      await whatsapp.enviarBotoes(
+        msg.telefone,
+        _textoFluxo('sistema', 'pedidoCancelado',
+            'Pedido cancelado. 🙂\nQuando quiser começar novamente, escolha uma opção:'),
+        _botoesInicio(),
+      );
+      return;
+    }
+
+    if (continuou) {
+      final etapa =
+          dados.remove('_etapaAntesCancelamento')?.toString() ?? 'inicio';
+      banco.salvarSessao(
+        telefone: msg.telefone,
+        nome: msg.nome,
+        etapa: etapa,
+        dados: dados,
+      );
+      await whatsapp.enviarTexto(
+        msg.telefone,
+        '👍 Pedido mantido. Continue de onde parou.',
+      );
+      await _responderAjuda(msg, {'etapa': etapa});
+      return;
+    }
+
+    await whatsapp.enviarBotoes(
+      msg.telefone,
+      'Escolha se deseja cancelar ou continuar o pedido:',
+      const [
+        {'id': 'cancelar_sim', 'titulo': 'Sim, cancelar'},
+        {'id': 'cancelar_nao', 'titulo': 'Continuar pedido'},
+      ],
+    );
+  }
 
   Future<void> _responderAjuda(
     MensagemWhatsApp msg,
