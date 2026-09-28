@@ -130,6 +130,11 @@ class BotService {
         return;
       }
       final entrada = _normalizar(msg.entrada);
+      if (_ehComandoAjuda(entrada)) {
+        await _responderAjuda(msg, sessao);
+        banco.finalizarMensagem(msg.id);
+        return;
+      }
       if (_ehComandoCancelar(entrada)) {
         _salvarInicioLimpo(msg.telefone, msg.nome);
         await whatsapp.enviarBotoes(
@@ -751,7 +756,7 @@ class BotService {
     String entrada,
   ) async {
     final maximo = _intFluxo('quantidade', 'maximo', 20).clamp(1, 50);
-    final qtd = int.tryParse(entrada.trim());
+    final qtd = _parseQuantidade(entrada);
     if (qtd == null || qtd < 1 || qtd > maximo) {
       await whatsapp.enviarTexto(
         msg.telefone,
@@ -891,7 +896,26 @@ class BotService {
     final opcoes = (dados['recebimentosExibidos'] as List? ?? atuais)
         .map((e) => Map<String, String>.from(e as Map))
         .toList();
-    final opcao = _acharOpcaoSimples(entrada, opcoes);
+    final entradaNatural = _correspondeIntencao(entrada, [
+      'entrega',
+      'entregar',
+      'quero entrega',
+      'manda entregar',
+      'pode entregar',
+      'receber em casa',
+    ])
+        ? 'rec_entrega'
+        : _correspondeIntencao(entrada, [
+            'retirada',
+            'retirar',
+            'quero retirar',
+            'vou retirar',
+            'vou buscar',
+            'buscar no local',
+          ])
+            ? 'rec_retirada'
+            : entrada;
+    final opcao = _acharOpcaoSimples(entradaNatural, opcoes);
     if (opcao == null || !atuais.any((e) => e['id'] == opcao['id'])) {
       await _mostrarRecebimento(msg, config, dados);
       return;
@@ -1284,7 +1308,29 @@ class BotService {
     final opcoes = (dados['pagamentosExibidos'] as List? ?? atuais)
         .map((e) => Map<String, String>.from(e as Map))
         .toList();
-    final opcao = _acharOpcaoSimples(entrada, opcoes);
+    final entradaNatural = _correspondeIntencao(entrada, [
+      'pix',
+      'pagar no pix',
+      'vou pagar no pix',
+    ])
+        ? 'pag_pix'
+        : _correspondeIntencao(entrada, [
+            'dinheiro',
+            'pagar em dinheiro',
+            'vou pagar em dinheiro',
+          ])
+            ? 'pag_dinheiro'
+            : _correspondeIntencao(entrada, [
+                'cartao',
+                'credito',
+                'debito',
+                'cartao de credito',
+                'cartao de debito',
+                'pagar no cartao',
+              ])
+                ? 'pag_cartao'
+                : entrada;
+    final opcao = _acharOpcaoSimples(entradaNatural, opcoes);
     if (opcao == null || !atuais.any((e) => e['id'] == opcao['id'])) {
       await _mostrarPagamentos(msg, config, dados);
       return;
@@ -1339,6 +1385,8 @@ class BotService {
       'não',
       'n',
       'sem troco',
+      'nao precisa',
+      'nao preciso',
       _textoFluxo('troco', 'textoSemTroco', 'não')
     ])) {
       dados['trocoPara'] = null;
@@ -1416,6 +1464,9 @@ class BotService {
         'não',
         'n',
         'nenhuma',
+        'nada',
+        'sem nada',
+        'nao tenho',
         'sem observacao',
         'sem observação',
         _textoFluxo('observacao', 'textoNenhuma', 'não')
@@ -1904,6 +1955,70 @@ class BotService {
         'escolhi errado',
         'digitei errado',
       ]);
+
+  bool _ehComandoAjuda(String entrada) => _correspondeIntencao(entrada, [
+        'ajuda',
+        'help',
+        'me ajuda',
+        'preciso de ajuda',
+        'nao entendi',
+        'o que eu faco',
+        'o que faco',
+        'como funciona',
+      ]);
+
+  Future<void> _responderAjuda(
+    MensagemWhatsApp msg,
+    Map<String, dynamic>? sessao,
+  ) async {
+    final etapa = sessao?['etapa']?.toString() ?? 'inicio';
+    final orientacao = switch (etapa) {
+      'tamanho' => 'Escolha o tamanho da marmita na lista.',
+      'mistura' => 'Escolha uma mistura na lista.',
+      'acompanhamento' => 'Escolha um acompanhamento na lista.',
+      'quantidade' => 'Digite quantas marmitas iguais você deseja. Ex.: *2*.',
+      'adicionar_outro' =>
+        'Escolha se deseja adicionar outra marmita ou finalizar o pedido.',
+      'recebimento' => 'Escolha *Entrega* ou *Retirada*.',
+      'endereco' => 'Envie rua, número, bairro e complemento ou referência.',
+      'cidade_entrega' => 'Escolha a cidade da entrega.',
+      'pagamento' => 'Escolha PIX, dinheiro ou cartão.',
+      'troco' => 'Digite *não* ou o valor para o troco. Ex.: *50*.',
+      'observacao' =>
+        'Escreva a observação ou digite *não* se não tiver nenhuma.',
+      'confirmacao' =>
+        'Confira o resumo e escolha confirmar, refazer ou cancelar.',
+      _ => 'Escolha uma das opções exibidas para começar.',
+    };
+    await whatsapp.enviarTexto(
+      msg.telefone,
+      '❓ *AJUDA*\n$orientacao\n\n'
+      'Digite *VOLTAR* para retornar, *CANCELAR* para cancelar ou '
+      '*ATENDENTE* para falar com nossa equipe.',
+    );
+  }
+
+  int? _parseQuantidade(String entrada) {
+    final texto = _normalizar(entrada)
+        .replaceFirst(RegExp(r'^(quero|preciso de|vou querer) '), '')
+        .replaceFirst(RegExp(r' marmitas?$'), '');
+    final numero = int.tryParse(texto);
+    if (numero != null) return numero;
+    return const {
+      'uma': 1,
+      'um': 1,
+      'duas': 2,
+      'dois': 2,
+      'tres': 3,
+      'quatro': 4,
+      'cinco': 5,
+      'seis': 6,
+      'sete': 7,
+      'oito': 8,
+      'nove': 9,
+      'dez': 10,
+    }[texto];
+  }
 
   bool _correspondeIntencao(String entrada, List<String> intencoes) {
     final texto = _normalizar(entrada)
