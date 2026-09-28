@@ -1,5 +1,9 @@
 FROM dart:stable
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app/backend
 
 COPY pubspec.yaml pubspec.lock ./
