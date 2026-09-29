@@ -1809,7 +1809,10 @@ class BotService {
         (mensagens['pedidoConfirmado'] ?? 'Pedido enviado para a loja.')
             .toString();
     final chavePix = config['chavePix']?.toString().trim() ?? '';
-    final nomePix = config['nomeEstabelecimento']?.toString().trim() ?? '';
+    final nomePixConfigurado = config['nomePix']?.toString().trim() ?? '';
+    final nomePix = nomePixConfigurado.isNotEmpty
+        ? nomePixConfigurado
+        : '65.467.376 ERIKA FRANCISCO DE SOUZA';
     final extraPix = pagamento == 'pix' && chavePix.isNotEmpty
         ? '\n\n💠 *PAGAMENTO VIA PIX*\n'
             '👤 *Nome:* ${nomePix.isEmpty ? 'Estabelecimento' : nomePix}\n'
