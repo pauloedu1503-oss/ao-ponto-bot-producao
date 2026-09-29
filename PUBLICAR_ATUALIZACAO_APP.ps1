@@ -5,6 +5,7 @@ $pubspec = Join-Path $raiz 'app\pubspec.yaml'
 $arquivoVersao = Join-Path $raiz 'backend\lib\app_update.dart'
 $flutter = 'C:\src\flutter\bin\flutter.bat'
 $apk = Join-Path $raiz 'app\build\app\outputs\flutter-apk\app-release.apk'
+$repositorioDownloads = 'pauloedu1503-oss/ao-ponto-bot-downloads'
 
 function Salvar-Utf8SemBom([string]$Caminho, [string]$Conteudo) {
     $utf8SemBom = New-Object System.Text.UTF8Encoding($false)
@@ -79,7 +80,7 @@ try {
     }
 
     $tag = "app-v$versao-build$build"
-    gh release create $tag "$apk#ao-ponto-bot.apk" --title "Ao Ponto Bot $versao" --notes "Atualização automática do aplicativo." --latest
+    gh release create $tag "$apk#ao-ponto-bot.apk" --repo $repositorioDownloads --title "Ao Ponto Bot $versao" --notes "Atualização automática do aplicativo." --latest
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao publicar o APK no GitHub.' }
 
     Push-Location $raiz
