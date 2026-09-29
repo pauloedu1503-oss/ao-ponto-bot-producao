@@ -1,0 +1,19 @@
+name: Manter backend acordado
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Acordar e verificar backend
+        run: |
+          curl --fail --silent --show-error \
+            --max-time 45 \
+            --retry 3 \
+            --retry-delay 10 \
+            https://ao-ponto-bot-producao.suagestao.blitz.cloud/api/app-versao
