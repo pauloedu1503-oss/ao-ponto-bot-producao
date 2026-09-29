@@ -253,13 +253,21 @@ function identificarCliente(msg) {
     return null;
   }
 
-  contatos[telefone] = jidPrincipal;
+  // Para responder, prefira sempre o JID baseado no número. Enviar para o
+  // LID recebido como identificador principal pode ser aceito localmente pelo
+  // Baileys e depois recusado pelo WhatsApp com "missing tctoken for contact".
+  const jidEnvio =
+    jidAlternativo.endsWith('@s.whatsapp.net')
+      ? jidAlternativo
+      : jidPrincipal;
+
+  contatos[telefone] = jidEnvio;
 
   salvarContatos();
 
   return {
     telefone,
-    jid: jidPrincipal,
+    jid: jidEnvio,
   };
 }
 
