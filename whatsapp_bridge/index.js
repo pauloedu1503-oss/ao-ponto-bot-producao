@@ -3,9 +3,7 @@ import path from 'node:path';
 
 import makeWASocket, {
   DisconnectReason,
-  generateWAMessageFromContent,
   generateMessageIDV2,
-  proto,
   useMultiFileAuthState,
   WAMessageStatus,
 } from '@whiskeysockets/baileys';
@@ -322,29 +320,6 @@ function extrairTexto(message) {
   const m =
     desembrulharMensagem(message);
 
-  let respostaInterativa = '';
-
-  try {
-    const paramsJson =
-      m.interactiveResponseMessage
-        ?.nativeFlowResponseMessage
-        ?.paramsJson;
-
-    if (paramsJson) {
-      const params = JSON.parse(paramsJson);
-
-      respostaInterativa =
-        params.id ??
-        params.selected_id ??
-        params.selected_row_id ??
-        params.display_text ??
-        params.title ??
-        '';
-    }
-  } catch {
-    // Se o WhatsApp mudar o formato, as respostas de texto continuam válidas.
-  }
-
   return (
     m.conversation ??
     m.extendedTextMessage?.text ??
@@ -355,7 +330,6 @@ function extrairTexto(message) {
     m.listResponseMessage?.title ??
     m.templateButtonReplyMessage
       ?.selectedDisplayText ??
-    respostaInterativa ??
     ''
   );
 }
@@ -443,7 +417,7 @@ function transformarInterativoEmTexto(payload) {
     .join('\n');
 }
 
-async function enviarConfirmado(jid, enviar) {
+async function enviarTextoConfirmado(jid, texto) {
   let ultimaFalha = null;
 
   for (let tentativa = 1; tentativa <= 2; tentativa++) {
@@ -464,7 +438,11 @@ async function enviarConfirmado(jid, enviar) {
     });
 
     try {
-      await enviar(id);
+      await sockAtual.sendMessage(
+        jid,
+        { text: texto },
+        { messageId: id },
+      );
 
       await confirmacao;
       return;
@@ -491,99 +469,6 @@ async function enviarConfirmado(jid, enviar) {
   }
 
   throw ultimaFalha ?? new Error('O WhatsApp não confirmou o envio.');
-}
-
-async function enviarTextoConfirmado(jid, texto) {
-  await enviarConfirmado(
-    jid,
-    (id) => sockAtual.sendMessage(
-      jid,
-      { text: texto },
-      { messageId: id },
-    ),
-  );
-}
-
-function criarBotoesNativos(interactive) {
-  if (interactive.type === 'button') {
-    return (interactive.action?.buttons ?? []).map((botao) => ({
-      name: 'quick_reply',
-      buttonParamsJson: JSON.stringify({
-        display_text: botao.reply?.title ?? '',
-        id: botao.reply?.id ?? '',
-      }),
-    }));
-  }
-
-  if (interactive.type === 'list') {
-    const secoes = (interactive.action?.sections ?? []).map((secao) => ({
-      title: secao.title ?? 'Opções',
-      rows: (secao.rows ?? []).map((linha) => ({
-        header: '',
-        title: linha.title ?? '',
-        description: linha.description ?? '',
-        id: linha.id ?? '',
-      })),
-    }));
-
-    return [{
-      name: 'single_select',
-      buttonParamsJson: JSON.stringify({
-        title: interactive.action?.button ?? 'Ver opções',
-        sections: secoes,
-      }),
-    }];
-  }
-
-  return [];
-}
-
-async function enviarInterativoConfirmado(jid, interactive) {
-  const texto = interactive.body?.text?.trim() ?? '';
-  const botoes = criarBotoesNativos(interactive);
-
-  if (!texto || botoes.length === 0) {
-    throw new Error('Resposta interativa vazia.');
-  }
-
-  await enviarConfirmado(jid, async (id) => {
-    const mensagem = generateWAMessageFromContent(
-      jid,
-      {
-        viewOnceMessage: {
-          message: {
-            messageContextInfo: {
-              deviceListMetadata: {},
-              deviceListMetadataVersion: 2,
-            },
-            interactiveMessage: proto.Message.InteractiveMessage.create({
-              body: proto.Message.InteractiveMessage.Body.create({ text: texto }),
-              footer: proto.Message.InteractiveMessage.Footer.create({
-                text: 'Se preferir, você também pode responder pelo número.',
-              }),
-              header: proto.Message.InteractiveMessage.Header.create({
-                hasMediaAttachment: false,
-              }),
-              nativeFlowMessage:
-                proto.Message.InteractiveMessage.NativeFlowMessage.create({
-                  buttons: botoes,
-                }),
-            }),
-          },
-        },
-      },
-      {
-        messageId: id,
-        userJid: sockAtual.user?.id,
-      },
-    );
-
-    await sockAtual.relayMessage(
-      jid,
-      mensagem.message,
-      { messageId: id },
-    );
-  });
 }
 
 async function enviarSaida(payload) {
@@ -614,34 +499,18 @@ async function enviarSaida(payload) {
   }
 
   if (payload.type === 'interactive') {
-    try {
-      await enviarInterativoConfirmado(
-        jid,
-        payload.interactive ?? {},
+    const texto =
+      transformarInterativoEmTexto(
+        payload,
+      ).trim();
+
+    if (!texto) {
+      throw new Error(
+        'Resposta interativa vazia.',
       );
-    } catch (erro) {
-      if (erro.message?.includes('não confirmou')) {
-        // O servidor pode ter recebido a mensagem mesmo sem devolver o ACK.
-        // Nesse caso não enviamos texto por cima para evitar duplicidade.
-        throw erro;
-      }
-
-      console.warn(
-        'O WhatsApp não aceitou os botões; enviando as opções em texto:',
-        erro.message,
-      );
-
-      const texto =
-        transformarInterativoEmTexto(
-          payload,
-        ).trim();
-
-      if (!texto) {
-        throw erro;
-      }
-
-      await enviarTextoConfirmado(jid, texto);
     }
+
+    await enviarTextoConfirmado(jid, texto);
 
     return;
   }
