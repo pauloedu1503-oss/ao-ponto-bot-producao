@@ -28,7 +28,7 @@ class _PedidosPageState extends State<PedidosPage> {
       child: RefreshIndicator(
         onRefresh: widget.controller.carregarTudo,
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: margemPagina(context),
           children: [
             const TituloPagina('Pedidos',
                 subtitulo: 'Acompanhe e atualize sem complicação'),
@@ -212,14 +212,18 @@ class _DetalhePedidoState extends State<_DetalhePedido> {
                       color: Colors.black26,
                       borderRadius: BorderRadius.circular(4)))),
           const SizedBox(height: 18),
-          Row(children: [
-            Expanded(
-                child: Text('Pedido #${pedido['numero']}',
+          Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                Text('Pedido #${pedido['numero']}',
                     style: const TextStyle(
-                        fontSize: 26, fontWeight: FontWeight.w900))),
-            _Tag(_nomeStatus(pedido['status']?.toString() ?? ''),
-                _corStatus(pedido['status']?.toString() ?? '')),
-          ]),
+                        fontSize: 26, fontWeight: FontWeight.w900)),
+                _Tag(_nomeStatus(pedido['status']?.toString() ?? ''),
+                    _corStatus(pedido['status']?.toString() ?? '')),
+              ]),
           const SizedBox(height: 6),
           Text(pedido['clienteNome']?.toString() ?? 'Cliente',
               style:
@@ -306,7 +310,7 @@ class _DetalhePedidoState extends State<_DetalhePedido> {
         padding: const EdgeInsets.symmetric(vertical: 5),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(
-              width: 110,
+              width: MediaQuery.sizeOf(context).width < 380 ? 88 : 110,
               child: Text(a,
                   style: TextStyle(
                       color: destaque ? Colors.black : Colors.black54,

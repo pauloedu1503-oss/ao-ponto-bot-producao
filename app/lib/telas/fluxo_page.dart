@@ -74,7 +74,7 @@ class _FluxoPageState extends State<FluxoPage> {
             final lista = _listaEtapas(context);
             final editor = _editor(context, def);
             return ListView(
-              padding: const EdgeInsets.all(20),
+              padding: margemPagina(context),
               children: [
                 TituloPagina(
                   'Fluxo do Bot',
@@ -111,9 +111,9 @@ class _FluxoPageState extends State<FluxoPage> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(width: 330, child: lista),
+                      Flexible(flex: 4, child: lista),
                       const SizedBox(width: 16),
-                      Expanded(child: editor),
+                      Flexible(flex: 7, child: editor),
                     ],
                   )
                 else ...[

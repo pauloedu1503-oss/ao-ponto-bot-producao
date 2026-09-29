@@ -23,7 +23,7 @@ class ConfiguracoesPage extends StatelessWidget {
       child: RefreshIndicator(
         onRefresh: controller.recarregarCardapioEConfig,
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: margemPagina(context),
           children: [
             const TituloPagina('Configurações',
                 subtitulo: 'Dados operacionais da Ao Ponto'),

@@ -18,7 +18,7 @@ class CardapioPage extends StatelessWidget {
       child: RefreshIndicator(
         onRefresh: controller.recarregarCardapioEConfig,
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: margemPagina(context),
           children: [
             const TituloPagina('Cardápio',
                 subtitulo:
@@ -240,45 +240,55 @@ class _ItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ativo = item['ativo'] == true;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-      decoration: BoxDecoration(
-        color: ativo ? Colors.white : Colors.black.withValues(alpha: .035),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black.withValues(alpha: .07)),
-      ),
-      child: Row(children: [
-        Switch(value: ativo, onChanged: onToggle),
-        const SizedBox(width: 8),
-        Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(item['nome']?.toString() ?? '',
-              style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: ativo ? Colors.black : Colors.black45)),
-          if (subtitulo != null)
-            Text(subtitulo!, style: const TextStyle(color: Colors.black54)),
-          if (!ativo)
-            const Text('ESGOTADO / INATIVO',
-                style: TextStyle(
-                    color: Colors.red,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800)),
-        ])),
-        IconButton(
-            onPressed: onEditar,
-            tooltip: 'Editar',
-            icon: const Icon(Icons.edit_outlined)),
-        PopupMenuButton<String>(
-          onSelected: (v) {
-            if (v == 'excluir') onExcluir();
-          },
-          itemBuilder: (_) =>
-              const [PopupMenuItem(value: 'excluir', child: Text('Excluir'))],
+    return LayoutBuilder(builder: (context, constraints) {
+      final compacto = constraints.maxWidth < 360;
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        decoration: BoxDecoration(
+          color: ativo ? Colors.white : Colors.black.withValues(alpha: .035),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.black.withValues(alpha: .07)),
         ),
-      ]),
-    );
+        child: Row(children: [
+          Switch(value: ativo, onChanged: onToggle),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(item['nome']?.toString() ?? '',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: ativo ? Colors.black : Colors.black45)),
+                if (subtitulo != null)
+                  Text(subtitulo!,
+                      style: const TextStyle(color: Colors.black54)),
+                if (!ativo)
+                  const Text('ESGOTADO / INATIVO',
+                      style: TextStyle(
+                          color: Colors.red,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800)),
+              ])),
+          if (!compacto)
+            IconButton(
+                onPressed: onEditar,
+                tooltip: 'Editar',
+                icon: const Icon(Icons.edit_outlined)),
+          PopupMenuButton<String>(
+            onSelected: (v) {
+              if (v == 'editar') onEditar();
+              if (v == 'excluir') onExcluir();
+            },
+            itemBuilder: (_) => [
+              if (compacto)
+                const PopupMenuItem(value: 'editar', child: Text('Editar')),
+              const PopupMenuItem(value: 'excluir', child: Text('Excluir')),
+            ],
+          ),
+        ]),
+      );
+    });
   }
 }

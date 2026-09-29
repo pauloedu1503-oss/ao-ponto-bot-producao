@@ -21,6 +21,9 @@ let sockAtual = null;
 let timerSaidas = null;
 let processandoSaidas = false;
 let timerReconexao = null;
+let conectando = false;
+let falhasConsecutivas = 0;
+let ultimaConexaoAberta = 0;
 
 function lerEnv() {
   const resultado = { ...process.env };
@@ -126,11 +129,18 @@ async function loginBackend() {
     },
   );
 
-  const dados = await resposta.json();
+  let dados = {};
+
+  try {
+    dados = await resposta.json();
+  } catch {
+    // Durante o despertar, o provedor pode responder com uma página HTML.
+  }
 
   if (!resposta.ok || !dados.token) {
     throw new Error(
-      dados.erro ?? 'Falha ao autenticar no backend.',
+      dados.erro ??
+        `Falha ao autenticar no backend (HTTP ${resposta.status}).`,
     );
   }
 
@@ -460,6 +470,70 @@ function esperar(ms) {
   });
 }
 
+function agendarConexao(erro, atrasoForcado = null) {
+  if (timerReconexao) {
+    return;
+  }
+
+  falhasConsecutivas++;
+
+  const atraso = atrasoForcado ?? Math.min(
+    30000,
+    3000 * (2 ** Math.min(falhasConsecutivas - 1, 4)),
+  );
+
+  console.error('');
+  console.error(
+    'Não foi possível conectar agora:',
+    erro?.message ?? erro,
+  );
+  console.log(
+    `A ponte continuará ativa e tentará novamente em ${Math.ceil(atraso / 1000)} segundos.`,
+  );
+
+  timerReconexao = setTimeout(() => {
+    timerReconexao = null;
+    iniciarConexao();
+  }, atraso);
+}
+
+async function iniciarConexao() {
+  if (conectando) {
+    return;
+  }
+
+  conectando = true;
+
+  try {
+    await conectar();
+  } catch (erro) {
+    agendarConexao(erro);
+  } finally {
+    conectando = false;
+  }
+}
+
+// Uma falha inesperada de biblioteca não pode deixar a ponte parada em
+// silêncio. O watchdog apenas intervém quando não existe socket, tentativa em
+// andamento ou reconexão já programada.
+setInterval(() => {
+  if (!sockAtual && !conectando && !timerReconexao) {
+    console.log('Ponte sem conexão ativa. Iniciando recuperação automática...');
+    iniciarConexao();
+  }
+}, 30000);
+
+process.on('unhandledRejection', (erro) => {
+  console.error(
+    'Falha assíncrona isolada:',
+    erro?.message ?? erro,
+  );
+
+  if (!sockAtual) {
+    agendarConexao(erro);
+  }
+});
+
 async function informarResultadoSaida(
   id,
   status,
@@ -751,7 +825,14 @@ async function conectar() {
 
   sock.ev.on(
     'creds.update',
-    saveCreds,
+    () => {
+      Promise.resolve(saveCreds()).catch((erro) => {
+        console.error(
+          'Falha ao salvar a sessão do WhatsApp:',
+          erro?.message ?? erro,
+        );
+      });
+    },
   );
 
   sock.ev.on(
@@ -765,7 +846,14 @@ async function conectar() {
       }
 
       for (const msg of messages) {
-        await processarEntrada(msg);
+        try {
+          await processarEntrada(msg);
+        } catch (erro) {
+          console.error(
+            'Falha isolada ao ler mensagem:',
+            erro?.message ?? erro,
+          );
+        }
       }
     },
   );
@@ -839,6 +927,8 @@ async function conectar() {
       if (
         connection === 'open'
       ) {
+        falhasConsecutivas = 0;
+        ultimaConexaoAberta = Date.now();
         console.clear();
 
         console.log(
@@ -861,6 +951,9 @@ async function conectar() {
         console.log(
           'Aguardando clientes...',
         );
+        console.log(
+          `Conexão estabilizada em ${new Date(ultimaConexaoAberta).toLocaleString('pt-BR')}.`,
+        );
         console.log('');
 
         iniciarBuscaDeSaidas();
@@ -870,6 +963,7 @@ async function conectar() {
         connection === 'close'
       ) {
         pararBuscaDeSaidas();
+        sockAtual = null;
 
         const erro =
           lastDisconnect?.error;
@@ -900,29 +994,13 @@ async function conectar() {
           'Conexão caiu. Reconectando...',
         );
 
-        if (timerReconexao) {
-          clearTimeout(
-            timerReconexao,
-          );
-        }
-
-        timerReconexao =
-          setTimeout(() => {
-            conectar().catch(
-              console.error,
-            );
-          }, 3000);
+        agendarConexao(
+          erro ?? new Error('Conexão com o WhatsApp encerrada.'),
+          3000,
+        );
       }
     },
   );
 }
 
-conectar().catch((erro) => {
-  console.error('');
-  console.error(
-    'ERRO AO INICIAR PONTE:',
-  );
-  console.error(
-    erro.message ?? erro,
-  );
-});
+iniciarConexao();

@@ -51,6 +51,35 @@ class _ShellPageState extends State<ShellPage> {
 
                 return Scaffold(
                   body: Column(children: [
+                    if (widget.controller.atualizacaoDisponivel != null)
+                      MaterialBanner(
+                        leading: const Icon(Icons.system_update_alt),
+                        content: Text(
+                          'Nova versão ${widget.controller.atualizacaoDisponivel!['versao']} disponível.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: widget.controller.baixandoAtualizacao
+                                ? null
+                                : () async {
+                                    try {
+                                      await widget.controller
+                                          .instalarAtualizacao();
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(SnackBar(
+                                                content: Text(
+                                                    'Não foi possível baixar a atualização: $e')));
+                                      }
+                                    }
+                                  },
+                            child: Text(widget.controller.baixandoAtualizacao
+                                ? 'Baixando…'
+                                : 'Atualizar agora'),
+                          ),
+                        ],
+                      ),
                     if (widget.controller.erroGlobal != null)
                       MaterialBanner(
                           content: Text(widget.controller.erroGlobal!),
@@ -75,22 +104,28 @@ class _ShellPageState extends State<ShellPage> {
                   ]),
                   bottomNavigationBar: desktop
                       ? null
-                      : NavigationBar(
-                          labelBehavior: NavigationDestinationLabelBehavior
-                              .onlyShowSelected,
-                          selectedIndex: index,
-                          onDestinationSelected: (novoIndex) {
-                            setState(() {
-                              index = novoIndex;
-                            });
-                          },
-                          destinations: destinos.map((destino) {
-                            return NavigationDestination(
-                              icon: Icon(destino.$1),
-                              selectedIcon: Icon(destino.$2),
-                              label: destino.$3,
-                            );
-                          }).toList(),
+                      : SafeArea(
+                          top: false,
+                          child: NavigationBar(
+                            height: constraints.maxHeight < 650 ? 64 : 72,
+                            labelBehavior: constraints.maxWidth < 400
+                                ? NavigationDestinationLabelBehavior.alwaysHide
+                                : NavigationDestinationLabelBehavior
+                                    .onlyShowSelected,
+                            selectedIndex: index,
+                            onDestinationSelected: (novoIndex) {
+                              setState(() {
+                                index = novoIndex;
+                              });
+                            },
+                            destinations: destinos.map((destino) {
+                              return NavigationDestination(
+                                icon: Icon(destino.$1),
+                                selectedIcon: Icon(destino.$2),
+                                label: destino.$3,
+                              );
+                            }).toList(),
+                          ),
                         ),
                 );
               },

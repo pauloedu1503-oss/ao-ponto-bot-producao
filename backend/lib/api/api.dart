@@ -7,6 +7,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../banco/banco.dart';
+import '../app_update.dart';
 import '../bot/bot_service.dart';
 import '../modelos/mensagem_whatsapp.dart';
 import '../servicos/auth_service.dart';
@@ -70,6 +71,7 @@ class Api {
   Handler get handler {
     final router = Router()
       ..get('/health', _health)
+      ..get('/api/app-versao', _appVersao)
       ..post('/api/auth/login', _login)
       ..post('/api/auth/logout', _logout)
       ..get('/api/bootstrap', _protegido(_bootstrap))
@@ -238,6 +240,12 @@ class Api {
         'whatsappBridgeAtivo': bot.whatsapp.bridgeAtivo,
         'whatsappDisponivel': bot.whatsapp.disponivel,
         'versao': '1.3.1',
+      });
+
+  Response _appVersao(Request _) => jsonResponse({
+        'versao': appVersao,
+        'build': appBuild,
+        'downloadUrl': appDownloadUrl,
       });
 
   Future<Response> _pushToken(Request request) async {

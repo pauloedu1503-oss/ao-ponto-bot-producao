@@ -120,9 +120,12 @@ class _EditorDialogState extends State<_EditorDialog> {
         if (!didPop) cancelar();
       },
       child: AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          scrollable: true,
           title: Text(widget.titulo),
-          content: SizedBox(
-              width: 430,
+          content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 430),
               child: SingleChildScrollView(
                   child: Form(
                       key: form,

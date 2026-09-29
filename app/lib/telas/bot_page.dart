@@ -24,7 +24,7 @@ class BotPage extends StatelessWidget {
       child: RefreshIndicator(
         onRefresh: controller.carregarTudo,
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: margemPagina(context),
           children: [
             TituloPagina('Bot',
                 subtitulo: 'Controle do atendimento automático',
@@ -189,36 +189,63 @@ class BotPage extends StatelessWidget {
                           child:
                               Text('Nenhuma conversa em atendimento humano.'))
                     else
-                      ...controller.humanos.map((h) => ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const CircleAvatar(
-                                child: Icon(Icons.person_outline)),
-                            title: Text(h['nome']?.toString().isNotEmpty == true
-                                ? h['nome'].toString()
-                                : h['telefone'].toString()),
-                            subtitle: Text(h['telefone']?.toString() ?? ''),
-                            trailing: Wrap(
-                              spacing: 8,
+                      ...controller.humanos.map((h) => Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: .025),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.black12),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (h['alertaAtivo'] == true)
-                                  OutlinedButton(
-                                    onPressed: () => _pararAlerta(
+                                Row(children: [
+                                  const CircleAvatar(
+                                      child: Icon(Icons.person_outline)),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                      child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                          h['nome']?.toString().isNotEmpty ==
+                                                  true
+                                              ? h['nome'].toString()
+                                              : h['telefone'].toString(),
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w800)),
+                                      Text(h['telefone']?.toString() ?? '',
+                                          style: const TextStyle(
+                                              color: Colors.black54)),
+                                    ],
+                                  )),
+                                ]),
+                                const SizedBox(height: 10),
+                                Wrap(spacing: 8, runSpacing: 8, children: [
+                                  if (h['alertaAtivo'] == true)
+                                    OutlinedButton(
+                                      onPressed: () => _pararAlerta(
+                                        context,
+                                        h['telefone'].toString(),
+                                      ),
+                                      child: const Text('Parar alerta'),
+                                    ),
+                                  FilledButton.tonal(
+                                    onPressed: () => _confirmarRetomar(
                                       context,
                                       h['telefone'].toString(),
+                                      h['nome']?.toString() ?? '',
                                     ),
-                                    child: const Text('Parar alerta'),
+                                    child: const Text('Retomar do início'),
                                   ),
-                                FilledButton.tonal(
-                                  onPressed: () => _confirmarRetomar(
-                                    context,
-                                    h['telefone'].toString(),
-                                    h['nome']?.toString() ?? '',
-                                  ),
-                                  child: const Text('Retomar do início'),
-                                ),
+                                ]),
                               ],
                             ),
-                          )),
+                          ))),
                   ]),
             ),
             const SizedBox(height: 40),

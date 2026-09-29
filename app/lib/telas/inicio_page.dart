@@ -22,7 +22,7 @@ class InicioPage extends StatelessWidget {
       child: RefreshIndicator(
         onRefresh: controller.carregarTudo,
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: margemPagina(context),
           children: [
             TituloPagina(
               'Ao Ponto',

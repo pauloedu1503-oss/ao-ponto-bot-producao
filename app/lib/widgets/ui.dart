@@ -8,33 +8,49 @@ class TituloPagina extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(titulo,
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineMedium
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-              if (subtitulo != null) ...[
-                const SizedBox(height: 4),
-                Text(subtitulo!,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: Colors.black54)),
-              ],
-            ],
-          ),
-        ),
-        if (acao != null) acao!,
-      ],
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      final compacto = constraints.maxWidth < 480 && acao != null;
+      final textos = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(titulo,
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineMedium
+                  ?.copyWith(fontWeight: FontWeight.w800)),
+          if (subtitulo != null) ...[
+            const SizedBox(height: 4),
+            Text(subtitulo!,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: Colors.black54)),
+          ],
+        ],
+      );
+      if (compacto) {
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          textos,
+          const SizedBox(height: 12),
+          acao!,
+        ]);
+      }
+      return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: textos),
+        if (acao != null) ...[const SizedBox(width: 12), acao!],
+      ]);
+    });
   }
+}
+
+EdgeInsets margemPagina(BuildContext context) {
+  final largura = MediaQuery.sizeOf(context).width;
+  final horizontal = largura < 400
+      ? 14.0
+      : largura < 700
+          ? 18.0
+          : 24.0;
+  return EdgeInsets.fromLTRB(horizontal, 18, horizontal, 40);
 }
 
 class PainelCard extends StatelessWidget {
@@ -46,8 +62,13 @@ class PainelCard extends StatelessWidget {
       this.padding = const EdgeInsets.all(18)});
 
   @override
-  Widget build(BuildContext context) =>
-      Card(child: Padding(padding: padding, child: child));
+  Widget build(BuildContext context) {
+    final compacto = MediaQuery.sizeOf(context).width < 400;
+    final ajuste = padding == const EdgeInsets.all(18) && compacto
+        ? const EdgeInsets.all(14)
+        : padding;
+    return Card(child: Padding(padding: ajuste, child: child));
+  }
 }
 
 class MetricaCard extends StatelessWidget {
@@ -83,6 +104,8 @@ class MetricaCard extends StatelessWidget {
                 Text(titulo, style: const TextStyle(color: Colors.black54)),
                 const SizedBox(height: 2),
                 Text(valor,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         fontWeight: FontWeight.w800, fontSize: 22)),
               ],

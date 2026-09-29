@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
+import 'atualizacao_service.dart';
 import 'notificacao_service.dart';
 
 Map<String, dynamic> copiaMapa(Map original) =>
@@ -33,6 +34,8 @@ class AppController extends ChangeNotifier {
   List<Map<String, dynamic>> humanos = [];
   List<Map<String, dynamic>> logs = [];
   List<Map<String, dynamic>> enviosComFalha = [];
+  Map<String, dynamic>? atualizacaoDisponivel;
+  bool baixandoAtualizacao = false;
 
   Timer? _timer;
   StreamSubscription<String>? _pushSubscription;
@@ -69,6 +72,7 @@ class AppController extends ChangeNotifier {
           autenticado = true;
           _iniciarPolling();
           unawaited(_registrarNotificacoes());
+          unawaited(verificarAtualizacao());
         } catch (e) {
           // Token antigo, backend indisponível ou sessão incompatível nunca pode
           // impedir a abertura do app. Voltamos ao login e removemos só o token.
@@ -133,11 +137,38 @@ class AppController extends ChangeNotifier {
       autenticado = true;
       _iniciarPolling();
       unawaited(_registrarNotificacoes());
+      unawaited(verificarAtualizacao());
     } catch (e) {
       erroGlobal = _mensagemErro(e);
       autenticado = false;
       rethrow;
     } finally {
+      notifyListeners();
+    }
+  }
+
+  Future<void> verificarAtualizacao() async {
+    try {
+      final instalada = await AtualizacaoService.buildInstalado();
+      if (instalada <= 0) return;
+      final remota = await api.appVersao();
+      final build = (remota['build'] as num?)?.toInt() ?? 0;
+      atualizacaoDisponivel = build > instalada ? remota : null;
+      notifyListeners();
+    } catch (_) {
+      // Falha na consulta de versão nunca interfere no funcionamento do painel.
+    }
+  }
+
+  Future<void> instalarAtualizacao() async {
+    if (baixandoAtualizacao || atualizacaoDisponivel == null) return;
+    baixandoAtualizacao = true;
+    notifyListeners();
+    try {
+      await AtualizacaoService.instalar(
+          atualizacaoDisponivel!['downloadUrl']?.toString() ?? '');
+    } finally {
+      baixandoAtualizacao = false;
       notifyListeners();
     }
   }

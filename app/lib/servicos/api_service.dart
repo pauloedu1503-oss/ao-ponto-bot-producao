@@ -62,6 +62,9 @@ class ApiService {
 
   Future<Map<String, dynamic>> health() async => _map(
       await _client.get(_uri('/health')).timeout(const Duration(seconds: 5)));
+  Future<Map<String, dynamic>> appVersao() async => _map(await _client
+      .get(_uri('/api/app-versao'))
+      .timeout(const Duration(seconds: 5)));
   Future<Map<String, dynamic>> bootstrap() async => _map(await _client
       .get(_uri('/api/bootstrap'), headers: _headers)
       .timeout(const Duration(seconds: 10)));
