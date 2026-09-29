@@ -1814,10 +1814,7 @@ class BotService {
         ? nomePixConfigurado
         : '65.467.376 ERIKA FRANCISCO DE SOUZA';
     final extraPix = pagamento == 'pix' && chavePix.isNotEmpty
-        ? '\n\n💠 *PAGAMENTO VIA PIX*\n'
-            '👤 *Nome:* ${nomePix.isEmpty ? 'Estabelecimento' : nomePix}\n'
-            '🔑 *Chave PIX:*\n```$chavePix```\n'
-            '_Toque e segure na chave para copiar._'
+        ? '\n\n💠 *══ PAGAMENTO PIX ══*\n👤 $nomePix\n🔑 *CHAVE:* `$chavePix`'
         : '';
     final extraRetirada = recebimento == 'retirada' &&
             (config['enderecoRetirada']?.toString().trim().isNotEmpty ?? false)
