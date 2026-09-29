@@ -992,7 +992,7 @@ class BotService {
         'endereco',
         'mensagem',
         '📍 Envie seu endereço para entrega:\nRua, número, bairro e complemento/referência.',
-      )}\n\nDepois vou perguntar a cidade para calcular a taxa.\nDigite *voltar* para retornar.',
+      )}\n\nDigite *voltar* para retornar.',
     );
   }
 
