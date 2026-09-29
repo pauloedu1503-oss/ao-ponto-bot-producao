@@ -1808,9 +1808,13 @@ class BotService {
     final confirmado =
         (mensagens['pedidoConfirmado'] ?? 'Pedido enviado para a loja.')
             .toString();
-    final extraPix = pagamento == 'pix' &&
-            (config['chavePix']?.toString().trim().isNotEmpty ?? false)
-        ? '\n\n💠 PIX: ${config['chavePix']}'
+    final chavePix = config['chavePix']?.toString().trim() ?? '';
+    final nomePix = config['nomeEstabelecimento']?.toString().trim() ?? '';
+    final extraPix = pagamento == 'pix' && chavePix.isNotEmpty
+        ? '\n\n💠 *PAGAMENTO VIA PIX*\n'
+            '👤 *Nome:* ${nomePix.isEmpty ? 'Estabelecimento' : nomePix}\n'
+            '🔑 *Chave PIX:*\n```$chavePix```\n'
+            '_Toque e segure na chave para copiar._'
         : '';
     final extraRetirada = recebimento == 'retirada' &&
             (config['enderecoRetirada']?.toString().trim().isNotEmpty ?? false)
