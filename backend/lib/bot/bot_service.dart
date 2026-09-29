@@ -498,7 +498,9 @@ class BotService {
 
     final linhas = <String>[
       _textoFluxo('cardapio', 'titulo', '🍱 *CARDÁPIO DO DIA*'),
-      ''
+      '',
+      '🍚 Todas as marmitas acompanham *arroz + feijão*.',
+      '',
     ];
     for (final t in tamanhos) {
       final m = Map<String, dynamic>.from(t as Map);
@@ -640,12 +642,17 @@ class BotService {
             })
         .toList();
     if (opcoes.length <= 3) {
-      await whatsapp.enviarBotoes(msg.telefone,
-          _textoFluxo('mistura', 'mensagem', 'Escolha a mistura:'), opcoes);
+      await whatsapp.enviarBotoes(
+        msg.telefone,
+        '🍚 Sua marmita já acompanha *arroz + feijão*.\n\n'
+        '${_textoFluxo('mistura', 'mensagem', 'Escolha a mistura:')}',
+        opcoes,
+      );
     } else {
       await whatsapp.enviarLista(
         msg.telefone,
-        texto: _textoFluxo('mistura', 'mensagem', 'Escolha a mistura:'),
+        texto: '🍚 Sua marmita já acompanha *arroz + feijão*.\n\n'
+            '${_textoFluxo('mistura', 'mensagem', 'Escolha a mistura:')}',
         tituloBotao: _textoFluxo('mistura', 'tituloLista', 'Ver misturas'),
         opcoes: opcoes,
       );
@@ -1529,7 +1536,9 @@ class BotService {
       final qtd = (item['quantidade'] as num).toInt();
       final preco = (item['precoUnitario'] as num).toDouble();
       linhas.add('*${qtd}x ${item['tamanhoNome']} — ${moeda(preco * qtd)}*');
-      linhas.add('${item['misturaNome']} • ${item['acompanhamentoNome']}');
+      linhas.add(
+        '🍚 Arroz + feijão • ${item['misturaNome']} • ${item['acompanhamentoNome']}',
+      );
       if (item['saladaIncluida'] == true) {
         linhas.add('🥗 ${item['descricaoSalada'] ?? 'Salada'}');
       }
