@@ -3,7 +3,9 @@ import path from 'node:path';
 
 import makeWASocket, {
   DisconnectReason,
+  generateMessageIDV2,
   useMultiFileAuthState,
+  WAMessageStatus,
 } from '@whiskeysockets/baileys';
 
 import { Boom } from '@hapi/boom';
@@ -27,6 +29,7 @@ let timerReconexao = null;
 let conectando = false;
 let falhasConsecutivas = 0;
 let ultimaConexaoAberta = 0;
+const confirmacoesEnvio = new Map();
 
 function lerEnv() {
   const resultado = { ...process.env };
@@ -414,6 +417,60 @@ function transformarInterativoEmTexto(payload) {
     .join('\n');
 }
 
+async function enviarTextoConfirmado(jid, texto) {
+  let ultimaFalha = null;
+
+  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    const id = generateMessageIDV2(sockAtual?.user?.id);
+
+    let timer = null;
+    const confirmacao = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        confirmacoesEnvio.delete(id);
+        reject(new Error('O WhatsApp não confirmou o envio em 8 segundos.'));
+      }, 8000);
+
+      confirmacoesEnvio.set(id, {
+        resolve,
+        reject,
+        timer,
+      });
+    });
+
+    try {
+      await sockAtual.sendMessage(
+        jid,
+        { text: texto },
+        { messageId: id },
+      );
+
+      await confirmacao;
+      return;
+    } catch (erro) {
+      ultimaFalha = erro;
+      const pendente = confirmacoesEnvio.get(id);
+      if (pendente) {
+        clearTimeout(pendente.timer);
+        confirmacoesEnvio.delete(id);
+      }
+
+      const codigo = erro?.codigo?.toString() ?? '';
+      if (tentativa === 1 && (codigo === '403' || codigo === '463')) {
+        console.warn(
+          `WhatsApp recusou a primeira tentativa (${codigo}). ` +
+          'Aguardando o token do contato e tentando novamente...',
+        );
+        await esperar(3000);
+        continue;
+      }
+
+      throw erro;
+    }
+  }
+
+  throw ultimaFalha ?? new Error('O WhatsApp não confirmou o envio.');
+}
+
 async function enviarSaida(payload) {
   const telefone =
     String(payload.to ?? '').replace(/\D/g, '');
@@ -436,12 +493,7 @@ async function enviarSaida(payload) {
       );
     }
 
-    await sockAtual.sendMessage(
-      jid,
-      {
-        text: texto,
-      },
-    );
+    await enviarTextoConfirmado(jid, texto);
 
     return;
   }
@@ -458,12 +510,7 @@ async function enviarSaida(payload) {
       );
     }
 
-    await sockAtual.sendMessage(
-      jid,
-      {
-        text: texto,
-      },
-    );
+    await enviarTextoConfirmado(jid, texto);
 
     return;
   }
@@ -833,6 +880,35 @@ async function conectar() {
 
   sockAtual = sock;
   let pareamentoSolicitado = false;
+
+  sock.ev.on('messages.update', (atualizacoes) => {
+    for (const item of atualizacoes) {
+      const id = item.key?.id;
+      const pendente = id ? confirmacoesEnvio.get(id) : null;
+      if (!pendente) continue;
+
+      const status = item.update?.status;
+      if (status === WAMessageStatus.ERROR) {
+        clearTimeout(pendente.timer);
+        confirmacoesEnvio.delete(id);
+        const codigo = item.update?.messageStubParameters?.[0]?.toString() ?? '';
+        const erro = new Error(
+          codigo
+            ? `WhatsApp recusou a mensagem (erro ${codigo}).`
+            : 'WhatsApp recusou a mensagem.',
+        );
+        erro.codigo = codigo;
+        pendente.reject(erro);
+      } else if (
+        typeof status === 'number' &&
+        status >= WAMessageStatus.SERVER_ACK
+      ) {
+        clearTimeout(pendente.timer);
+        confirmacoesEnvio.delete(id);
+        pendente.resolve();
+      }
+    }
+  });
 
   sock.ev.on(
     'creds.update',
