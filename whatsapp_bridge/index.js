@@ -10,6 +10,9 @@ import { Boom } from '@hapi/boom';
 import qrcode from 'qrcode-terminal';
 
 const BACKEND = process.env.BACKEND_URL || 'http://127.0.0.1:8080';
+const DIRETORIO_AUTH = path.resolve(
+  process.env.WHATSAPP_AUTH_PATH || './auth_info',
+);
 
 const ARQUIVO_ENV = path.resolve('../backend/.env');
 const ARQUIVO_CONTATOS = path.resolve(
@@ -811,7 +814,7 @@ async function conectar() {
 
   const { state, saveCreds } =
     await useMultiFileAuthState(
-      process.env.WHATSAPP_AUTH_PATH || './auth_info',
+      DIRETORIO_AUTH,
     );
 
   const sock = makeWASocket({
@@ -980,10 +983,38 @@ async function conectar() {
         ) {
           console.log('');
           console.log(
-            'WhatsApp desconectado.',
+            'WhatsApp recusou a sessão anterior.',
           );
-          console.log(
-            'Apague auth_info e conecte novamente.',
+
+          try {
+            fs.rmSync(
+              DIRETORIO_AUTH,
+              {
+                recursive: true,
+                force: true,
+              },
+            );
+
+            fs.mkdirSync(
+              DIRETORIO_AUTH,
+              {
+                recursive: true,
+              },
+            );
+
+            console.log(
+              'Sessão inválida removida. Gerando um novo código...',
+            );
+          } catch (erroLimpeza) {
+            console.error(
+              'Falha ao limpar a sessão inválida:',
+              erroLimpeza?.message ?? erroLimpeza,
+            );
+          }
+
+          agendarConexao(
+            new Error('Sessão do WhatsApp inválida.'),
+            3000,
           );
 
           return;
