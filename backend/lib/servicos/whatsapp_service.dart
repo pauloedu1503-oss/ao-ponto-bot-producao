@@ -198,24 +198,6 @@ class WhatsAppService {
     banco.db.execute('BEGIN IMMEDIATE');
 
     try {
-      // Se existe uma mensagem de envio duvidoso,
-      // paramos a fila. É mais seguro do que duplicar
-      // uma mensagem para o cliente.
-      final bloqueada = banco.db.select(
-        '''
-      SELECT 1
-      FROM whatsapp_saida
-      WHERE canal = 'bridge'
-        AND status IN ('enviando', 'incerto')
-      LIMIT 1
-      ''',
-      );
-
-      if (bloqueada.isNotEmpty) {
-        banco.db.execute('COMMIT');
-        return const [];
-      }
-
       final rows = banco.db.select(
         '''
       SELECT id, payload
