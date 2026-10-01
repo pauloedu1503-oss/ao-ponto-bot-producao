@@ -172,7 +172,9 @@ class _PedidoCard extends StatelessWidget {
     if (itens is! List) return '';
     return itens.map((raw) {
       final i = Map<String, dynamic>.from(raw as Map);
-      return '${i['quantidade']}x ${i['tamanhoNome']} • ${i['misturaNome']}';
+      final base =
+          '${i['arrozNome'] ?? 'Arroz'} + ${i['feijaoNome'] ?? 'Feijão'}';
+      return '${i['quantidade']}x ${i['tamanhoNome']} • $base • ${i['misturaNome']}';
     }).join(' | ');
   }
 }
@@ -193,6 +195,9 @@ class _DetalhePedidoState extends State<_DetalhePedido> {
   @override
   Widget build(BuildContext context) {
     final itens = (pedido['itens'] as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    final bebidas = (pedido['bebidas'] as List? ?? const [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
     return DraggableScrollableSheet(
@@ -241,9 +246,26 @@ class _DetalhePedidoState extends State<_DetalhePedido> {
                 Text(
                     '${i['quantidade']}x ${i['tamanhoNome']} — ${dinheiro((i['precoUnitario'] as num?)?.toDouble() ?? 0)}',
                     style: const TextStyle(fontWeight: FontWeight.w800)),
-                Text('${i['misturaNome']} • ${i['acompanhamentoNome']}',
+                Text(
+                    '${i['arrozNome'] ?? 'Arroz'} + ${i['feijaoNome'] ?? 'Feijão'}\n'
+                    '${i['misturaNome']} • ${i['acompanhamentoNome']}',
                     style: const TextStyle(color: Colors.black54)),
                 const SizedBox(height: 10),
+              ],
+              if (bebidas.isNotEmpty) ...[
+                const Divider(height: 22),
+                const Text('Bebidas',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+                const SizedBox(height: 10),
+                for (final b in bebidas)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '${b['quantidade']}x ${b['nome']} — ${dinheiro(((b['precoUnitario'] as num?)?.toDouble() ?? 0) * ((b['quantidade'] as num?)?.toInt() ?? 1))}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
               ],
             ]),
           ),

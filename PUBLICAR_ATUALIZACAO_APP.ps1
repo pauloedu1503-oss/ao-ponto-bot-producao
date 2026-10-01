@@ -6,10 +6,35 @@ $arquivoVersao = Join-Path $raiz 'backend\lib\app_update.dart'
 $flutter = 'C:\src\flutter\bin\flutter.bat'
 $apk = Join-Path $raiz 'app\build\app\outputs\flutter-apk\app-release.apk'
 $repositorioDownloads = 'pauloedu1503-oss/ao-ponto-bot-downloads'
+$repositorioBackend = 'pauloedu1503-oss/ao-ponto-bot-backend-deploy'
 
 function Salvar-Utf8SemBom([string]$Caminho, [string]$Conteudo) {
     $utf8SemBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Caminho, $Conteudo, $utf8SemBom)
+}
+
+function Publicar-ArquivoGitHub(
+    [string]$Repositorio,
+    [string]$CaminhoRepositorio,
+    [string]$CaminhoLocal,
+    [string]$Mensagem
+) {
+    $sha = gh api "repos/$Repositorio/contents/$CaminhoRepositorio" --method GET -f ref=main --jq '.sha'
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($sha)) {
+        throw "Não foi possível localizar $CaminhoRepositorio em $Repositorio."
+    }
+
+    $corpo = @{
+        message = $Mensagem
+        content = [Convert]::ToBase64String([IO.File]::ReadAllBytes($CaminhoLocal))
+        sha = $sha.Trim()
+        branch = 'main'
+    } | ConvertTo-Json -Compress
+
+    $corpo | gh api "repos/$Repositorio/contents/$CaminhoRepositorio" --method PUT --input - --silent
+    if ($LASTEXITCODE -ne 0) {
+        throw "Não foi possível atualizar $CaminhoRepositorio em $Repositorio."
+    }
 }
 
 if (-not (Test-Path $flutter)) {
@@ -80,8 +105,14 @@ try {
     }
 
     $tag = "app-v$versao-build$build"
-    gh release create $tag "$apk#ao-ponto-bot.apk" --repo $repositorioDownloads --title "Ao Ponto Bot $versao" --notes "Atualização automática do aplicativo." --latest
+    gh release create $tag "$apk#app-release.apk" --repo $repositorioDownloads --title "Ao Ponto Bot $versao" --notes "Atualização automática do aplicativo." --latest
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao publicar o APK no GitHub.' }
+
+    Publicar-ArquivoGitHub `
+        $repositorioBackend `
+        'lib/app_update.dart' `
+        $arquivoVersao `
+        "Publicar aplicativo $versao"
 
     Push-Location $raiz
     try {
@@ -89,9 +120,16 @@ try {
         # autenticação do WhatsApp e builds continuam protegidos pelo .gitignore.
         git add --all
         git commit -m "Publicar aplicativo $versao"
-        if ($LASTEXITCODE -ne 0) { throw 'Falha ao registrar a nova versão.' }
-        git push origin main
-        if ($LASTEXITCODE -ne 0) { throw 'Falha ao atualizar o servidor.' }
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'Aviso: não foi possível registrar a cópia local no Git.' -ForegroundColor Yellow
+        }
+
+        & (Join-Path $raiz 'SINCRONIZAR_PROJETO_GITHUB.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'Aviso: o APK foi publicado, mas a cópia do projeto não foi sincronizada.' -ForegroundColor Yellow
+            Write-Host 'Execute SINCRONIZAR_PROJETO_GITHUB.bat depois.'
+        }
     } finally {
         Pop-Location
     }

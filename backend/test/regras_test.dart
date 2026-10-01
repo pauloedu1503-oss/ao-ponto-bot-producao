@@ -113,6 +113,7 @@ void main() {
     ]);
     expect(banco.listarPedidos(), hasLength(1));
     final p = banco.listarPedidos().single;
+    expect(p['numero'], inInclusiveRange(10000, 99999));
     expect(p['total'], 18);
     expect(p['taxaMaquininha'], 2);
     expect(p['taxaEntrega'], 0);
@@ -121,6 +122,156 @@ void main() {
     await montar();
     await enviar('conf_confirmar');
     expect(banco.listarPedidos(), hasLength(2));
+    final numeros = banco.listarPedidos().map((e) => e['numero']).toSet();
+    expect(numeros, hasLength(2));
+  });
+
+  test('bot desativado não visualiza nem responde mensagens', () async {
+    configurar((d) => d['botAtivo'] = false);
+    wa.consumirMensagensSimuladas();
+    await enviar('oi');
+    expect(wa.consumirMensagensSimuladas(), isEmpty);
+    expect(banco.obterSessao('5514999999999'), isNull);
+  });
+
+  test('conversa ativa pode ser parada sem desligar o bot para todos',
+      () async {
+    await enviar('oi');
+    expect(banco.listarConversasAtivas(), hasLength(1));
+
+    banco.pararBotNaConversa('5514999999999');
+    expect(banco.listarConversasAtivas(), isEmpty);
+    final humanos = banco.listarSessoesHumanas();
+    expect(humanos, hasLength(1));
+    expect(humanos.single['alertaAtivo'], isFalse);
+
+    wa.consumirMensagensSimuladas();
+    await enviar('1');
+    expect(wa.consumirMensagensSimuladas(), isEmpty);
+
+    await enviar('oi', telefone: '5514888888888');
+    expect(banco.listarConversasAtivas(), hasLength(1));
+  });
+
+  test('bebidas são configuráveis, opcionais e entram no total', () async {
+    final menu = banco.obterCardapio();
+    menu['bebidas'] = [
+      {
+        'id': 'beb_coca',
+        'tipo': 'bebida',
+        'nome': 'Coca-Cola lata',
+        'preco': 3.0,
+        'ativo': true,
+        'ordem': 1,
+      }
+    ];
+    banco.atualizarCardapio(menu);
+    for (final texto in [
+      'inicio_pedido',
+      '1',
+      '1',
+      '1',
+      '1',
+      'outro_nao',
+      'rec_retirada',
+      'pag_pix',
+      'não',
+      '1',
+      '2',
+      'beb_finalizar',
+      'conf_confirmar',
+    ]) {
+      await enviar(texto);
+    }
+    final pedido = banco.listarPedidos().single;
+    expect(pedido['subtotal'], 14);
+    expect(pedido['total'], 14);
+    expect(pedido['bebidas'], hasLength(1));
+    expect(pedido['bebidas'][0]['quantidade'], 2);
+  });
+
+  test('fluxos de arroz e feijão são independentes e salvos no pedido',
+      () async {
+    final menu = banco.obterCardapio();
+    menu['fluxoArrozAtivo'] = true;
+    menu['fluxoFeijaoAtivo'] = true;
+    menu['arrozes'] = [
+      {
+        'id': 'arr_branco',
+        'tipo': 'arroz',
+        'nome': 'Arroz branco',
+        'ativo': true,
+        'ordem': 1,
+      }
+    ];
+    menu['feijoes'] = [
+      {
+        'id': 'fei_carioca',
+        'tipo': 'feijao',
+        'nome': 'Feijão carioca',
+        'ativo': true,
+        'ordem': 1,
+      }
+    ];
+    banco.atualizarCardapio(menu);
+
+    await enviar('inicio_pedido');
+    await enviar('1');
+    expect(sessao()['etapa'], 'arroz');
+    await enviar('1');
+    expect(sessao()['etapa'], 'feijao');
+    await enviar('1');
+    expect(sessao()['etapa'], 'mistura');
+    final saidas = wa.consumirMensagensSimuladas();
+    expect(jsonEncode(saidas.last),
+        contains('arroz à escolha + feijão à escolha'));
+
+    for (final texto in [
+      '1',
+      '1',
+      '1',
+      'outro_nao',
+      'rec_retirada',
+      'pag_pix',
+      'não',
+      'conf_confirmar',
+    ]) {
+      await enviar(texto);
+    }
+    final item = banco.listarPedidos().single['itens'][0] as Map;
+    expect(item['arrozNome'], 'Arroz branco');
+    expect(item['feijaoNome'], 'Feijão carioca');
+  });
+
+  test('descrição arroz e feijão acompanha cada combinação dos fluxos',
+      () async {
+    final menu = banco.obterCardapio();
+    menu['arrozes'] = [
+      {'id': 'arr_1', 'nome': 'Arroz branco', 'ativo': true, 'ordem': 1}
+    ];
+    menu['feijoes'] = [
+      {'id': 'fei_1', 'nome': 'Feijão carioca', 'ativo': true, 'ordem': 1}
+    ];
+
+    Future<String> cardapioCom(bool arroz, bool feijao) async {
+      final atual = banco.obterCardapio();
+      atual['arrozes'] = menu['arrozes'];
+      atual['feijoes'] = menu['feijoes'];
+      atual['fluxoArrozAtivo'] = arroz;
+      atual['fluxoFeijaoAtivo'] = feijao;
+      banco.atualizarCardapio(atual);
+      wa.consumirMensagensSimuladas();
+      await enviar('inicio_cardapio');
+      return jsonEncode(wa.consumirMensagensSimuladas().last);
+    }
+
+    expect(await cardapioCom(false, false), contains('arroz + feijão'));
+    expect(
+        await cardapioCom(true, false), contains('arroz à escolha + feijão'));
+    expect(
+        await cardapioCom(false, true), contains('arroz + feijão à escolha'));
+    expect(await cardapioCom(true, true),
+        contains('arroz à escolha + feijão à escolha'));
   });
 
   test('preço visto fica congelado antes da escolha', () async {

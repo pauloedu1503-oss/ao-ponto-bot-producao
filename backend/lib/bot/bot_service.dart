@@ -41,6 +41,7 @@ class BotService {
     final config = Map<String, dynamic>.from(
       banco.obterConfiguracao()['dados'] as Map,
     );
+    if (config['botAtivo'] == false) return;
     final estado = _estadoEfetivo(config);
     if (estado == 'atendendo') {
       await whatsapp.enviarBotoes(
@@ -77,9 +78,13 @@ class BotService {
   Future<void> _processarInterno(MensagemWhatsApp msg) async {
     if (!banco.iniciarProcessamentoMensagem(msg.id)) return;
     try {
-      await whatsapp.marcarComoLida(msg.id);
       final configWrapper = banco.obterConfiguracao();
       final config = Map<String, dynamic>.from(configWrapper['dados'] as Map);
+      if (config['botAtivo'] == false) {
+        banco.finalizarMensagem(msg.id);
+        return;
+      }
+      await whatsapp.marcarComoLida(msg.id);
 
       var sessao = banco.obterSessao(msg.telefone);
       if (sessao?['modoHumano'] == true) {
@@ -309,9 +314,7 @@ class BotService {
       msg.telefone,
       '${prefixo}🍱 *${config['nomeEstabelecimento']}*\n'
       'Olá! 👋 O que deseja?\n'
-      '1️⃣ Fazer pedido\n'
-      '2️⃣ Ver cardápio\n'
-      '3️⃣ Falar com atendente\n\n'
+      '\n'
       '💡 Durante o pedido, você pode usar *VOLTAR*, *CANCELAR* ou *ATENDENTE* quando precisar.',
       _botoesInicio(),
     );
@@ -380,6 +383,12 @@ class BotService {
       case 'tamanho':
         await _tratarTamanho(msg, config, dados, entrada);
         break;
+      case 'arroz':
+        await _tratarBase(msg, config, dados, entrada, 'arroz');
+        break;
+      case 'feijao':
+        await _tratarBase(msg, config, dados, entrada, 'feijao');
+        break;
       case 'mistura':
         await _tratarMistura(msg, config, dados, entrada);
         break;
@@ -409,6 +418,15 @@ class BotService {
         break;
       case 'observacao':
         await _tratarObservacao(msg, config, dados, entrada);
+        break;
+      case 'bebida':
+        await _tratarBebida(msg, config, dados, entrada);
+        break;
+      case 'quantidade_bebida':
+        await _tratarQuantidadeBebida(msg, config, dados, entrada);
+        break;
+      case 'adicionar_outra_bebida':
+        await _tratarAdicionarOutraBebida(msg, config, dados, entrada);
         break;
       case 'confirmacao':
         await _tratarConfirmacao(msg, config, dados, entrada);
@@ -487,6 +505,17 @@ class BotService {
     final acompanhamentos = (c['acompanhamentos'] as List)
         .where((e) => (e as Map)['ativo'] == true)
         .toList();
+    final bebidas = (c['bebidas'] as List? ?? const [])
+        .where((e) => (e as Map)['ativo'] == true)
+        .toList();
+    final arrozes = (c['arrozes'] as List? ?? const [])
+        .where((e) => (e as Map)['ativo'] == true)
+        .toList();
+    final feijoes = (c['feijoes'] as List? ?? const [])
+        .where((e) => (e as Map)['ativo'] == true)
+        .toList();
+    final fluxoArroz = c['fluxoArrozAtivo'] == true;
+    final fluxoFeijao = c['fluxoFeijaoAtivo'] == true;
 
     if (tamanhos.isEmpty || misturas.isEmpty || acompanhamentos.isEmpty) {
       await _semOpcao(
@@ -499,7 +528,7 @@ class BotService {
     final linhas = <String>[
       _textoFluxo('cardapio', 'titulo', '🍱 *CARDÁPIO DO DIA*'),
       '',
-      '🍚 Todas as marmitas acompanham *arroz + feijão*.',
+      '🍚 Todas as marmitas acompanham *${_descricaoBase(c)}*.',
       '',
     ];
     for (final t in tamanhos) {
@@ -511,6 +540,20 @@ class BotService {
       '*Misturas:*',
       ...misturas.map((e) => '• ${(e as Map)['nome']}'),
     ]);
+    if (fluxoArroz) {
+      linhas.addAll([
+        '',
+        '*Arroz:*',
+        ...arrozes.map((e) => '• ${(e as Map)['nome']}'),
+      ]);
+    }
+    if (fluxoFeijao) {
+      linhas.addAll([
+        '',
+        '*Feijão:*',
+        ...feijoes.map((e) => '• ${(e as Map)['nome']}'),
+      ]);
+    }
     linhas.addAll([
       '',
       '*Acompanhamentos:*',
@@ -519,6 +562,16 @@ class BotService {
     if (config['saladaIncluida'] == true) {
       linhas
           .add('\n🥗 ${config['descricaoSalada'] ?? 'Salada do dia'} inclusa.');
+    }
+    if (bebidas.isNotEmpty) {
+      linhas.addAll([
+        '',
+        '*Bebidas:*',
+        ...bebidas.map((e) {
+          final b = Map<String, dynamic>.from(e as Map);
+          return '• ${b['nome']} — ${moeda((b['preco'] as num).toDouble())}';
+        }),
+      ]);
     }
     linhas.add(
         '\n${_textoFluxo('cardapio', 'rodape', 'O mesmo padrão em todos os tamanhos; muda a quantidade.')}');
@@ -608,7 +661,100 @@ class BotService {
       'saladaIncluida': config['saladaIncluida'] == true,
       'descricaoSalada': config['descricaoSalada']?.toString() ?? 'Salada',
     };
-    await _mostrarMisturas(msg, dados);
+    await _mostrarPrimeiraBaseOuMistura(msg, config, dados);
+  }
+
+  Future<void> _mostrarPrimeiraBaseOuMistura(
+    MensagemWhatsApp msg,
+    Map<String, dynamic> config,
+    Map<String, dynamic> dados,
+  ) async {
+    final cardapio = banco.obterCardapio();
+    if (cardapio['fluxoArrozAtivo'] == true) {
+      await _mostrarBase(msg, dados, 'arroz');
+    } else if (cardapio['fluxoFeijaoAtivo'] == true) {
+      await _mostrarBase(msg, dados, 'feijao');
+    } else {
+      await _mostrarMisturas(msg, dados);
+    }
+  }
+
+  Future<void> _mostrarBase(
+    MensagemWhatsApp msg,
+    Map<String, dynamic> dados,
+    String tipo,
+  ) async {
+    final cardapio = banco.obterCardapio();
+    final chave = tipo == 'arroz' ? 'arrozes' : 'feijoes';
+    final nome = tipo == 'arroz' ? 'arroz' : 'feijão';
+    final lista = (cardapio[chave] as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .where((e) => e['ativo'] == true)
+        .toList();
+    if (lista.isEmpty) {
+      await _semOpcao(msg, 'Nenhuma opção de $nome está disponível agora.');
+      return;
+    }
+    dados['opcoesExibidas'] = lista;
+    banco.salvarSessao(
+      telefone: msg.telefone,
+      nome: msg.nome,
+      etapa: tipo,
+      dados: dados,
+    );
+    final prefixo = tipo == 'arroz' ? 'arr:' : 'fei:';
+    final opcoes = lista
+        .map((e) => <String, String>{
+              'id': '$prefixo${e['id']}',
+              'titulo': e['nome'].toString(),
+              'descricao': 'Escolher $nome',
+            })
+        .toList();
+    final texto = tipo == 'arroz'
+        ? '🍚 Escolha o arroz da marmita:'
+        : '🫘 Escolha o feijão da marmita:';
+    if (opcoes.length <= 3) {
+      await whatsapp.enviarBotoes(msg.telefone, texto, opcoes);
+    } else {
+      await whatsapp.enviarLista(
+        msg.telefone,
+        texto: texto,
+        tituloBotao: tipo == 'arroz' ? 'Ver arrozes' : 'Ver feijões',
+        opcoes: opcoes,
+      );
+    }
+  }
+
+  Future<void> _tratarBase(
+    MensagemWhatsApp msg,
+    Map<String, dynamic> config,
+    Map<String, dynamic> dados,
+    String entrada,
+    String tipo,
+  ) async {
+    final cardapio = banco.obterCardapio();
+    final chave = tipo == 'arroz' ? 'arrozes' : 'feijoes';
+    final lista = (dados['opcoesExibidas'] as List? ??
+            cardapio[chave] as List? ??
+            const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .where((e) => e['ativo'] == true)
+        .toList();
+    final prefixo = tipo == 'arroz' ? 'arr:' : 'fei:';
+    final escolhido = _acharOpcao(entrada, lista, prefixo: prefixo);
+    if (escolhido == null) {
+      await _mostrarBase(msg, dados, tipo);
+      return;
+    }
+    final atual = Map<String, dynamic>.from(dados['itemAtual'] as Map);
+    atual['${tipo}Id'] = escolhido['id'];
+    atual['${tipo}Nome'] = escolhido['nome'];
+    dados['itemAtual'] = atual;
+    if (tipo == 'arroz' && cardapio['fluxoFeijaoAtivo'] == true) {
+      await _mostrarBase(msg, dados, 'feijao');
+    } else {
+      await _mostrarMisturas(msg, dados);
+    }
   }
 
   Future<void> _mostrarMisturas(
@@ -642,16 +788,18 @@ class BotService {
             })
         .toList();
     if (opcoes.length <= 3) {
+      final cardapio = banco.obterCardapio();
       await whatsapp.enviarBotoes(
         msg.telefone,
-        '🍚 Sua marmita já acompanha *arroz + feijão*.\n\n'
+        '🍚 Sua marmita acompanha *${_descricaoBase(cardapio)}*.\n\n'
         '${_textoFluxo('mistura', 'mensagem', 'Escolha a mistura:')}',
         opcoes,
       );
     } else {
+      final cardapio = banco.obterCardapio();
       await whatsapp.enviarLista(
         msg.telefone,
-        texto: '🍚 Sua marmita já acompanha *arroz + feijão*.\n\n'
+        texto: '🍚 Sua marmita acompanha *${_descricaoBase(cardapio)}*.\n\n'
             '${_textoFluxo('mistura', 'mensagem', 'Escolha a mistura:')}',
         tituloBotao: _textoFluxo('mistura', 'tituloLista', 'Ver misturas'),
         opcoes: opcoes,
@@ -978,6 +1126,7 @@ class BotService {
     dados.remove('pagamento');
     dados.remove('trocoPara');
     dados.remove('observacao');
+    dados.remove('bebidas');
     dados.remove('taxaEntregaCongelada');
     dados.remove('cidadeConfirmadaCliente');
   }
@@ -1044,6 +1193,7 @@ class BotService {
     dados.remove('pagamento');
     dados.remove('trocoPara');
     dados.remove('observacao');
+    dados.remove('bebidas');
 
     await _mostrarCidadeEntrega(
       msg,
@@ -1218,6 +1368,7 @@ class BotService {
     dados.remove('pagamento');
     dados.remove('trocoPara');
     dados.remove('observacao');
+    dados.remove('bebidas');
 
     await _mostrarPagamentos(
       msg,
@@ -1376,6 +1527,7 @@ class BotService {
     dados['pagamento'] = pagamento;
     dados.remove('trocoPara');
     dados.remove('observacao');
+    dados.remove('bebidas');
     if (pagamento == 'dinheiro') {
       await _pedirTroco(msg, dados);
       return;
@@ -1451,7 +1603,7 @@ class BotService {
       await _pedirObservacao(msg, dados);
     } else {
       dados['observacao'] = null;
-      await _mostrarResumo(msg, config, dados);
+      await _mostrarBebidasOuResumo(msg, config, dados);
     }
   }
 
@@ -1499,7 +1651,7 @@ class BotService {
       ],
     )) {
       dados['observacao'] = null;
-      await _mostrarResumo(msg, config, dados);
+      await _mostrarBebidasOuResumo(msg, config, dados);
       return;
     }
 
@@ -1513,7 +1665,216 @@ class BotService {
       return;
     }
     dados['observacao'] = original;
-    await _mostrarResumo(msg, config, dados);
+    await _mostrarBebidasOuResumo(msg, config, dados);
+  }
+
+  List<Map<String, dynamic>> _bebidasAtivas() =>
+      (banco.obterCardapio()['bebidas'] as List? ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .where((e) => e['ativo'] == true)
+          .toList();
+
+  Future<void> _mostrarBebidasOuResumo(
+    MensagemWhatsApp msg,
+    Map<String, dynamic> config,
+    Map<String, dynamic> dados,
+  ) async {
+    dados.putIfAbsent('bebidas', () => <dynamic>[]);
+    if (_bebidasAtivas().isEmpty) {
+      await _mostrarResumo(msg, config, dados);
+      return;
+    }
+    await _mostrarBebidas(msg, dados);
+  }
+
+  Future<void> _mostrarBebidas(
+      MensagemWhatsApp msg, Map<String, dynamic> dados) async {
+    final lista = _bebidasAtivas();
+    if (lista.isEmpty) {
+      final config =
+          Map<String, dynamic>.from(banco.obterConfiguracao()['dados'] as Map);
+      await _mostrarResumo(msg, config, dados);
+      return;
+    }
+    dados['opcoesExibidas'] = lista;
+    banco.salvarSessao(
+      telefone: msg.telefone,
+      nome: msg.nome,
+      etapa: 'bebida',
+      dados: dados,
+    );
+    final opcoes = lista
+        .map((b) => <String, String>{
+              'id': 'beb:${b['id']}',
+              'titulo': b['nome'].toString(),
+              'descricao': moeda((b['preco'] as num).toDouble()),
+            })
+        .toList()
+      ..add({
+        'id': 'beb_sem',
+        'titulo': _textoFluxo('bebida', 'botaoSemBebida', 'Sem bebida'),
+        'descricao': 'Continuar sem adicionar bebida',
+      });
+    if (opcoes.length <= 3) {
+      await whatsapp.enviarBotoes(
+          msg.telefone,
+          _textoFluxo('bebida', 'mensagem', 'Deseja adicionar uma bebida?'),
+          opcoes);
+    } else {
+      await whatsapp.enviarLista(
+        msg.telefone,
+        texto:
+            _textoFluxo('bebida', 'mensagem', 'Deseja adicionar uma bebida?'),
+        tituloBotao: _textoFluxo('bebida', 'tituloLista', 'Ver bebidas'),
+        opcoes: opcoes,
+      );
+    }
+  }
+
+  Future<void> _tratarBebida(
+    MensagemWhatsApp msg,
+    Map<String, dynamic> config,
+    Map<String, dynamic> dados,
+    String entrada,
+  ) async {
+    if (_corresponde(entrada, [
+      'beb_sem',
+      'sem bebida',
+      'nao',
+      'não',
+      _textoFluxo('bebida', 'botaoSemBebida', 'Sem bebida'),
+    ])) {
+      await _mostrarResumo(msg, config, dados);
+      return;
+    }
+    final lista = (dados['opcoesExibidas'] as List? ?? _bebidasAtivas())
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .where((e) => e['ativo'] == true)
+        .toList();
+    if (int.tryParse(entrada) == lista.length + 1) {
+      await _mostrarResumo(msg, config, dados);
+      return;
+    }
+    final escolhida = _acharOpcao(entrada, lista, prefixo: 'beb:');
+    if (escolhida == null) {
+      await _mostrarBebidas(msg, dados);
+      return;
+    }
+    dados['bebidaAtual'] = {
+      'bebidaId': escolhida['id'],
+      'nome': escolhida['nome'],
+      'precoUnitario': (escolhida['preco'] as num).toDouble(),
+    };
+    banco.salvarSessao(
+      telefone: msg.telefone,
+      nome: msg.nome,
+      etapa: 'quantidade_bebida',
+      dados: dados,
+    );
+    final maximo = _intFluxo('quantidadeBebida', 'maximo', 20).clamp(1, 50);
+    final titulo = _textoFluxo(
+        'quantidadeBebida', 'mensagem', 'Quantas unidades desta bebida?');
+    final ajuda = _textoFluxo('quantidadeBebida', 'ajuda',
+            'Digite apenas a quantidade de 1 a {max}.')
+        .replaceAll('{max}', '$maximo');
+    await whatsapp.enviarTexto(msg.telefone, '$titulo\n$ajuda');
+  }
+
+  Future<void> _tratarQuantidadeBebida(
+    MensagemWhatsApp msg,
+    Map<String, dynamic> config,
+    Map<String, dynamic> dados,
+    String entrada,
+  ) async {
+    final maximo = _intFluxo('quantidadeBebida', 'maximo', 20).clamp(1, 50);
+    final quantidade = _parseQuantidade(entrada);
+    if (quantidade == null || quantidade < 1 || quantidade > maximo) {
+      await whatsapp.enviarTexto(
+          msg.telefone, 'Digite somente um número de 1 a $maximo. Ex.: *2*.');
+      return;
+    }
+    final atual = Map<String, dynamic>.from(dados['bebidaAtual'] as Map);
+    final bebidas = (dados['bebidas'] as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    final existente =
+        bebidas.indexWhere((e) => e['bebidaId'] == atual['bebidaId']);
+    if (existente >= 0) {
+      bebidas[existente]['quantidade'] =
+          (bebidas[existente]['quantidade'] as num).toInt() + quantidade;
+    } else {
+      atual['quantidade'] = quantidade;
+      bebidas.add(atual);
+    }
+    dados['bebidas'] = bebidas;
+    dados.remove('bebidaAtual');
+    banco.salvarSessao(
+      telefone: msg.telefone,
+      nome: msg.nome,
+      etapa: 'adicionar_outra_bebida',
+      dados: dados,
+    );
+    await whatsapp.enviarBotoes(
+      msg.telefone,
+      _textoFluxo('adicionarOutraBebida', 'mensagem',
+          '🥤 Bebida adicionada. Deseja adicionar outra?'),
+      [
+        {
+          'id': 'beb_outra',
+          'titulo':
+              _textoFluxo('adicionarOutraBebida', 'botaoSim', 'Adicionar outra')
+        },
+        {
+          'id': 'beb_finalizar',
+          'titulo': _textoFluxo(
+              'adicionarOutraBebida', 'botaoNao', 'Finalizar bebidas')
+        },
+      ],
+    );
+  }
+
+  Future<void> _tratarAdicionarOutraBebida(
+    MensagemWhatsApp msg,
+    Map<String, dynamic> config,
+    Map<String, dynamic> dados,
+    String entrada,
+  ) async {
+    if (_corresponde(entrada, [
+      'beb_outra',
+      '1',
+      'sim',
+      _textoFluxo('adicionarOutraBebida', 'botaoSim', 'Adicionar outra'),
+    ])) {
+      await _mostrarBebidas(msg, dados);
+      return;
+    }
+    if (_corresponde(entrada, [
+      'beb_finalizar',
+      '2',
+      'nao',
+      'não',
+      _textoFluxo('adicionarOutraBebida', 'botaoNao', 'Finalizar bebidas'),
+    ])) {
+      await _mostrarResumo(msg, config, dados);
+      return;
+    }
+    await whatsapp.enviarBotoes(
+      msg.telefone,
+      _textoFluxo('adicionarOutraBebida', 'mensagem',
+          '🥤 Bebida adicionada. Deseja adicionar outra?'),
+      [
+        {
+          'id': 'beb_outra',
+          'titulo':
+              _textoFluxo('adicionarOutraBebida', 'botaoSim', 'Adicionar outra')
+        },
+        {
+          'id': 'beb_finalizar',
+          'titulo': _textoFluxo(
+              'adicionarOutraBebida', 'botaoNao', 'Finalizar bebidas')
+        },
+      ],
+    );
   }
 
   Future<void> _mostrarResumo(
@@ -1536,11 +1897,23 @@ class BotService {
       final qtd = (item['quantidade'] as num).toInt();
       final preco = (item['precoUnitario'] as num).toDouble();
       linhas.add('*${qtd}x ${item['tamanhoNome']} — ${moeda(preco * qtd)}*');
-      linhas.add(
-        '🍚 Arroz + feijão • ${item['misturaNome']} • ${item['acompanhamentoNome']}',
-      );
+      final base = <String>[
+        item['arrozNome']?.toString() ?? 'Arroz',
+        item['feijaoNome']?.toString() ?? 'Feijão',
+      ].join(' + ');
+      linhas.add('🍚 $base');
+      linhas.add('🍽️ ${item['misturaNome']} • ${item['acompanhamentoNome']}');
       if (item['saladaIncluida'] == true) {
         linhas.add('🥗 ${item['descricaoSalada'] ?? 'Salada'}');
+      }
+      linhas.add('');
+    }
+    if (calculo.bebidas.isNotEmpty) {
+      linhas.add('*Bebidas:*');
+      for (final bebida in calculo.bebidas) {
+        final qtd = (bebida['quantidade'] as num).toInt();
+        final preco = (bebida['precoUnitario'] as num).toDouble();
+        linhas.add('🥤 ${qtd}x ${bebida['nome']} — ${moeda(preco * qtd)}');
       }
       linhas.add('');
     }
@@ -1796,6 +2169,7 @@ class BotService {
       taxaEntrega: calculo.taxaEntrega,
       taxaMaquininha: calculo.taxaMaquininha,
       itens: calculo.itens,
+      bebidas: calculo.bebidas,
     );
 
     // Pedido confirmado encerra totalmente o carrinho anterior. Assim o próximo
@@ -1831,10 +2205,13 @@ class BotService {
     final itens = (dados['itens'] as List? ?? [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
+    final bebidas = (dados['bebidas'] as List? ?? [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
     final taxa = dados['recebimento'] == 'entrega'
         ? (dados['taxaEntregaCongelada'] as num?)?.toDouble() ?? 0
         : 0.0;
-    final calculoBase = CalculoPedido(itens, taxa);
+    final calculoBase = CalculoPedido(itens, taxa, bebidas: bebidas);
     final pagamento = dados['pagamento']?.toString() ?? '';
     final valorPorFaixa = switch (pagamento) {
       'credito' => 2.0,
@@ -1845,7 +2222,8 @@ class BotService {
         ? 0.0
         : ((calculoBase.subtotal + calculoBase.taxaEntrega) / 50).ceil() *
             valorPorFaixa;
-    return CalculoPedido(itens, taxa, taxaMaquininha: taxaMaquininha);
+    return CalculoPedido(itens, taxa,
+        bebidas: bebidas, taxaMaquininha: taxaMaquininha);
   }
 
   List<String> _itensIndisponiveis(Map<String, dynamic> dados) {
@@ -1859,6 +2237,9 @@ class BotService {
     final tamanhos = ativos('tamanhos');
     final misturas = ativos('misturas');
     final acompanhamentos = ativos('acompanhamentos');
+    final bebidasAtivas = ativos('bebidas');
+    final arrozesAtivos = ativos('arrozes');
+    final feijoesAtivos = ativos('feijoes');
     final indisponiveis = <String>[];
     for (final raw in (dados['itens'] as List? ?? const [])) {
       final item = Map<String, dynamic>.from(raw as Map);
@@ -1870,6 +2251,20 @@ class BotService {
       }
       if (!acompanhamentos.contains(item['acompanhamentoId']?.toString())) {
         indisponiveis.add(item['acompanhamentoNome'].toString());
+      }
+      if (cardapio['fluxoArrozAtivo'] == true &&
+          !arrozesAtivos.contains(item['arrozId']?.toString())) {
+        indisponiveis.add(item['arrozNome']?.toString() ?? 'Arroz');
+      }
+      if (cardapio['fluxoFeijaoAtivo'] == true &&
+          !feijoesAtivos.contains(item['feijaoId']?.toString())) {
+        indisponiveis.add(item['feijaoNome']?.toString() ?? 'Feijão');
+      }
+    }
+    for (final raw in (dados['bebidas'] as List? ?? const [])) {
+      final bebida = Map<String, dynamic>.from(raw as Map);
+      if (!bebidasAtivas.contains(bebida['bebidaId']?.toString())) {
+        indisponiveis.add(bebida['nome'].toString());
       }
     }
     return indisponiveis.toSet().toList();
@@ -1895,6 +2290,14 @@ class BotService {
       if (_normalizar(item['nome'].toString()) == entrada) return item;
     }
     return null;
+  }
+
+  String _descricaoBase(Map<String, dynamic> cardapio) {
+    final arroz =
+        cardapio['fluxoArrozAtivo'] == true ? 'arroz à escolha' : 'arroz';
+    final feijao =
+        cardapio['fluxoFeijaoAtivo'] == true ? 'feijão à escolha' : 'feijão';
+    return '$arroz + $feijao';
   }
 
   Map<String, String>? _acharOpcaoSimples(
@@ -2131,6 +2534,10 @@ class BotService {
       'troco' => 'Digite *não* ou o valor para o troco. Ex.: *50*.',
       'observacao' =>
         'Escreva a observação ou digite *não* se não tiver nenhuma.',
+      'bebida' => 'Escolha uma bebida ou selecione *Sem bebida*.',
+      'quantidade_bebida' => 'Digite quantas unidades da bebida você deseja.',
+      'adicionar_outra_bebida' =>
+        'Escolha adicionar outra bebida ou finalizar as bebidas.',
       'confirmacao' =>
         'Confira o resumo e escolha confirmar, refazer ou cancelar.',
       _ => 'Escolha uma das opções exibidas para começar.',
@@ -2185,6 +2592,23 @@ class BotService {
         await _pedirEndereco(msg, dados);
         return;
       case 'mistura':
+        final cardapio = banco.obterCardapio();
+        if (cardapio['fluxoFeijaoAtivo'] == true) {
+          await _mostrarBase(msg, dados, 'feijao');
+        } else if (cardapio['fluxoArrozAtivo'] == true) {
+          await _mostrarBase(msg, dados, 'arroz');
+        } else {
+          await _mostrarTamanhos(msg, dados);
+        }
+        return;
+      case 'feijao':
+        if (banco.obterCardapio()['fluxoArrozAtivo'] == true) {
+          await _mostrarBase(msg, dados, 'arroz');
+        } else {
+          await _mostrarTamanhos(msg, dados);
+        }
+        return;
+      case 'arroz':
         await _mostrarTamanhos(msg, dados);
         return;
       case 'acompanhamento':
@@ -2251,8 +2675,23 @@ class BotService {
           await _mostrarPagamentos(msg, config, dados, permitirPulo: false);
         }
         return;
-      case 'confirmacao':
+      case 'bebida':
         if (config['permitirObservacoes'] == true) {
+          await _pedirObservacao(msg, dados, alterando: true);
+        } else if (dados['pagamento'] == 'dinheiro') {
+          await _pedirTroco(msg, dados);
+        } else {
+          await _mostrarPagamentos(msg, config, dados, permitirPulo: false);
+        }
+        return;
+      case 'quantidade_bebida':
+      case 'adicionar_outra_bebida':
+        await _mostrarBebidas(msg, dados);
+        return;
+      case 'confirmacao':
+        if (_bebidasAtivas().isNotEmpty) {
+          await _mostrarBebidas(msg, dados);
+        } else if (config['permitirObservacoes'] == true) {
           await _pedirObservacao(msg, dados, alterando: true);
         } else if (dados['pagamento'] == 'dinheiro') {
           await _pedirTroco(msg, dados);
@@ -2327,7 +2766,7 @@ class BotService {
         .replaceAll('õ', 'o')
         .replaceAll('ú', 'u')
         .replaceAll('ç', 'c')
-        .replaceAll(RegExp(r'[^a-z0-9_]+'), ' ')
+        .replaceAll(RegExp(r'[^a-z0-9_:]+'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }

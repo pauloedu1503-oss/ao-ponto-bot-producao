@@ -47,6 +47,15 @@ class _FluxoPageState extends State<FluxoPage> {
         'Só aparece quando o pagamento é dinheiro.'),
     _EtapaDef('observacao', 'Observação', Icons.edit_note_outlined,
         'Etapa opcional antes do resumo.'),
+    _EtapaDef('bebida', 'Bebidas', Icons.local_drink_outlined,
+        'Escolha opcional depois das observações.'),
+    _EtapaDef('quantidadeBebida', 'Quantidade da bebida',
+        Icons.numbers_outlined, 'Quantidade de cada bebida escolhida.'),
+    _EtapaDef(
+        'adicionarOutraBebida',
+        'Outra bebida',
+        Icons.add_shopping_cart_outlined,
+        'Adicionar mais bebidas ou seguir ao resumo.'),
     _EtapaDef('resumo', 'Resumo e confirmação', Icons.receipt_long_outlined,
         'Conferência final antes de criar o pedido.'),
     _EtapaDef('sistema', 'Mensagens do sistema', Icons.shield_outlined,
@@ -358,6 +367,34 @@ class _FluxoPageState extends State<FluxoPage> {
             linhas: 1,
             max: 30);
         break;
+      case 'bebida':
+        campo('mensagem', 'Pergunta ao cliente', linhas: 2);
+        campo('tituloLista', 'Botão da lista quando houver muitas bebidas',
+            linhas: 1, max: 20);
+        campo('botaoSemBebida', 'Botão • Sem bebida', linhas: 1, max: 20);
+        break;
+      case 'quantidadeBebida':
+        campo('mensagem', 'Pergunta ao cliente', linhas: 2);
+        campo('ajuda', 'Texto de ajuda',
+            ajuda: 'Use {max} onde deseja mostrar o limite configurado.',
+            linhas: 2);
+        widgets.add(ListTile(
+            title: const Text('Quantidade máxima por bebida'),
+            subtitle: Text((dados['maximo'] ?? 20).toString()),
+            trailing: const Icon(Icons.edit_outlined),
+            onTap: () => _editarCampo(
+                context,
+                etapa,
+                'maximo',
+                'Quantidade máxima por bebida',
+                (dados['maximo'] ?? 20).toString(),
+                numero: true)));
+        break;
+      case 'adicionarOutraBebida':
+        campo('mensagem', 'Pergunta ao cliente', linhas: 2);
+        campo('botaoSim', 'Botão • Adicionar outra', linhas: 1, max: 20);
+        campo('botaoNao', 'Botão • Finalizar bebidas', linhas: 1, max: 20);
+        break;
       case 'resumo':
         campo('titulo', 'Título do resumo', linhas: 1);
         campo('botaoConfirmar', 'Botão • Confirmar', linhas: 1, max: 20);
@@ -379,6 +416,11 @@ class _FluxoPageState extends State<FluxoPage> {
   Widget _preview(BuildContext context, String chave, Map<String, dynamic> d) {
     final mensagens = <String>[];
     List<String> botoes = [];
+    final menu = widget.controller.cardapio;
+    List<Map> ativos(String colecao) => (menu[colecao] as List? ?? [])
+        .whereType<Map>()
+        .where((e) => e['ativo'] == true)
+        .toList();
     switch (chave) {
       case 'inicio':
         mensagens.add(d['mensagem']?.toString() ?? '');
@@ -451,6 +493,22 @@ class _FluxoPageState extends State<FluxoPage> {
         mensagens.add(
             '${d['mensagem'] ?? ''}\nDigite ${d['textoNenhuma'] ?? 'não'} para nenhuma.');
         break;
+      case 'bebida':
+        mensagens.add(d['mensagem']?.toString() ?? '');
+        botoes = [
+          ...ativos('bebidas')
+              .map((e) => '${e['nome']} ${dinheiro(e['preco'])}'),
+          d['botaoSemBebida']?.toString() ?? 'Sem bebida',
+        ];
+        break;
+      case 'quantidadeBebida':
+        mensagens.add(
+            '${d['mensagem'] ?? ''}\n${(d['ajuda'] ?? '').toString().replaceAll('{max}', '${d['maximo'] ?? 20}')}');
+        break;
+      case 'adicionarOutraBebida':
+        mensagens.add(d['mensagem']?.toString() ?? '');
+        botoes = [d['botaoSim'].toString(), d['botaoNao'].toString()];
+        break;
       case 'resumo':
         mensagens.add(
             '${d['titulo'] ?? ''}\n\n1x Média — R\$ 15,00\nBife acebolado • Macarrão\n🥗 Salada do dia\n\n🏠 Retirada\n💳 PIX\n\nTOTAL: R\$ 15,00');
@@ -465,11 +523,6 @@ class _FluxoPageState extends State<FluxoPage> {
         break;
     }
 
-    final menu = widget.controller.cardapio;
-    List<Map> ativos(String colecao) => (menu[colecao] as List? ?? [])
-        .whereType<Map>()
-        .where((e) => e['ativo'] == true)
-        .toList();
     if (chave == 'tamanho') {
       botoes = ativos('tamanhos')
           .map((e) => '${e['nome']} ${dinheiro(e['preco'])}')
@@ -516,6 +569,9 @@ class _FluxoPageState extends State<FluxoPage> {
           ...ativos('misturas').map((e) => e['nome']),
           'Acompanhamentos:',
           ...ativos('acompanhamentos').map((e) => e['nome']),
+          if (ativos('bebidas').isNotEmpty) 'Bebidas:',
+          ...ativos('bebidas')
+              .map((e) => '${e['nome']} — ${dinheiro(e['preco'])}'),
           d['rodape']
         ].join('\n'));
     }

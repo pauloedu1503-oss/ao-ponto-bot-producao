@@ -24,8 +24,9 @@ class NotificacaoService {
     return FirebaseMessaging.instance.getToken();
   }
 
-  static Stream<String> get tokens =>
-      suportado ? FirebaseMessaging.instance.onTokenRefresh : const Stream.empty();
+  static Stream<String> get tokens => suportado
+      ? FirebaseMessaging.instance.onTokenRefresh
+      : const Stream.empty();
 
   static Future<void> pararAlerta() async {
     if (suportado) await _canal.invokeMethod<void>('parar');

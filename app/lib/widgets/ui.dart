@@ -125,6 +125,7 @@ class EstadoPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final config = switch (estado) {
       'atendendo' => (Colors.green, 'ATENDENDO'),
+      'desativado' => (Colors.red, 'DESATIVADO'),
       'pausado' => (Colors.orange, 'PAUSADO'),
       'esgotado' => (Colors.red, 'ESGOTADO'),
       _ => (Colors.grey, 'FECHADO'),

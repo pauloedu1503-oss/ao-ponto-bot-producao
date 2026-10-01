@@ -61,6 +61,21 @@ Map<String, dynamic> fluxoPadraoApp() => {
         'mensagemAlterar': 'Altere sua observação.',
         'textoNenhuma': 'não',
       },
+      'bebida': {
+        'mensagem': 'Deseja adicionar uma bebida?',
+        'tituloLista': 'Ver bebidas',
+        'botaoSemBebida': 'Sem bebida',
+      },
+      'quantidadeBebida': {
+        'mensagem': 'Quantas unidades desta bebida?',
+        'ajuda': 'Digite apenas a quantidade de 1 a {max}.',
+        'maximo': 20,
+      },
+      'adicionarOutraBebida': {
+        'mensagem': '🥤 Bebida adicionada. Deseja adicionar outra?',
+        'botaoSim': 'Adicionar outra',
+        'botaoNao': 'Finalizar bebidas',
+      },
       'resumo': {
         'titulo': '🧾 *CONFIRA SEU PEDIDO*',
         'botaoConfirmar': 'Confirmar',

@@ -12,7 +12,7 @@ Map<String, dynamic> copiaMapa(Map original) =>
 
 class AppController extends ChangeNotifier {
   static const String servidorProducao =
-      'https://ao-ponto-bot-producao.suagestao.blitz.cloud';
+      'https://ao-ponto-bot-backend.de.deplexo.com';
 
   ApiService api = ApiService(baseUrl: servidorProducao);
 
@@ -28,10 +28,16 @@ class AppController extends ChangeNotifier {
     'versao': 0,
     'tamanhos': [],
     'misturas': [],
-    'acompanhamentos': []
+    'acompanhamentos': [],
+    'bebidas': [],
+    'fluxoArrozAtivo': false,
+    'fluxoFeijaoAtivo': false,
+    'arrozes': [],
+    'feijoes': []
   };
   List<Map<String, dynamic>> pedidos = [];
   List<Map<String, dynamic>> humanos = [];
+  List<Map<String, dynamic>> conversasAtivas = [];
   List<Map<String, dynamic>> logs = [];
   List<Map<String, dynamic>> enviosComFalha = [];
   Map<String, dynamic>? atualizacaoDisponivel;
@@ -293,6 +299,12 @@ class AppController extends ChangeNotifier {
     await salvarConfigDados(dados);
   }
 
+  Future<void> definirBotAtivo(bool ativo) async {
+    final dados = copiaMapa(configuracao['dados'] as Map);
+    dados['botAtivo'] = ativo;
+    await salvarConfigDados(dados);
+  }
+
   Future<void> salvarCardapio(Map<String, dynamic> novo) async {
     if (salvandoCardapio) {
       throw const ApiException('Aguarde a alteração do cardápio.');
@@ -345,6 +357,21 @@ class AppController extends ChangeNotifier {
 
   Future<void> retomarBot(String telefone) async {
     await api.modoHumano(telefone, false);
+    humanos = _listaMap(await api.humanos());
+    notifyListeners();
+  }
+
+  Future<void> carregarConversasAtivas() async {
+    conversasAtivas = _listaMap(await api.conversasAtivas());
+    notifyListeners();
+  }
+
+  Future<void> pararBotNaConversa(String telefone) async {
+    await api.pararBotNaConversa(telefone);
+    await Future.wait([carregarConversasAtivas(), _recarregarHumanos()]);
+  }
+
+  Future<void> _recarregarHumanos() async {
     humanos = _listaMap(await api.humanos());
     notifyListeners();
   }

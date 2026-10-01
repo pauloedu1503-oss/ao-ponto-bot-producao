@@ -1,11 +1,13 @@
 /// Dinheiro calculado em centavos; o contrato HTTP/SQLite continua em reais.
 class CalculoPedido {
   final List<Map<String, dynamic>> itens;
+  final List<Map<String, dynamic>> bebidas;
   late final int _subtotal;
   late final int _taxa;
   late final int _taxaMaquininha;
 
-  CalculoPedido(this.itens, double taxa, {double taxaMaquininha = 0}) {
+  CalculoPedido(this.itens, double taxa,
+      {this.bebidas = const [], double taxaMaquininha = 0}) {
     if (itens.isEmpty ||
         !taxa.isFinite ||
         taxa < 0 ||
@@ -33,6 +35,21 @@ class CalculoPedido {
           quantidade < 1 ||
           quantidade > 50) {
         throw ArgumentError('Preço ou quantidade inválidos.');
+      }
+      soma += (preco * 100).round() * quantidade;
+    }
+    for (final bebida in bebidas) {
+      final preco = bebida['precoUnitario'];
+      final quantidade = bebida['quantidade'];
+      if (preco is! num ||
+          !preco.isFinite ||
+          preco <= 0 ||
+          preco > 10000 ||
+          (preco * 100 - (preco * 100).round()).abs() > 0.000001 ||
+          quantidade is! int ||
+          quantidade < 1 ||
+          quantidade > 50) {
+        throw ArgumentError('Preço ou quantidade de bebida inválidos.');
       }
       soma += (preco * 100).round() * quantidade;
     }

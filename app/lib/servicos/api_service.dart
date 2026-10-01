@@ -127,6 +127,17 @@ class ApiService {
       .get(_uri('/api/humanos'), headers: _headers)
       .timeout(const Duration(seconds: 8)));
 
+  Future<List<dynamic>> conversasAtivas() async => _list(await _client
+      .get(_uri('/api/conversas-ativas'), headers: _headers)
+      .timeout(const Duration(seconds: 8)));
+
+  Future<void> pararBotNaConversa(String telefone) async {
+    final encoded = Uri.encodeComponent(telefone);
+    _map(await _client
+        .post(_uri('/api/conversas-ativas/$encoded/parar'), headers: _headers)
+        .timeout(const Duration(seconds: 8)));
+  }
+
   Future<void> modoHumano(String telefone, bool ativo) async {
     final encoded = Uri.encodeComponent(telefone);
     _map(await _client

@@ -59,7 +59,8 @@ class PushService {
       JOIN pedidos p ON p.id = s.pedido_id
       WHERE s.status = 'pendente' AND p.status = 'novo'
     ''')) {
-      final ultimo = DateTime.tryParse(row['ultimo_envio_em']?.toString() ?? '');
+      final ultimo =
+          DateTime.tryParse(row['ultimo_envio_em']?.toString() ?? '');
       if (ultimo == null || agora.difference(ultimo).inSeconds >= 60) {
         alertas.add({
           'tipo': 'novo_pedido',
@@ -75,7 +76,8 @@ class PushService {
       SELECT telefone, titulo, corpo, ultimo_envio_em
       FROM push_humano WHERE ativo = 1
     ''')) {
-      final ultimo = DateTime.tryParse(row['ultimo_envio_em']?.toString() ?? '');
+      final ultimo =
+          DateTime.tryParse(row['ultimo_envio_em']?.toString() ?? '');
       if (ultimo == null || agora.difference(ultimo).inSeconds >= 30) {
         alertas.add({
           'tipo': 'atendente',
@@ -106,7 +108,8 @@ class PushService {
           final token = row['token'] as String;
           try {
             final resposta = await client.post(
-              Uri.parse('https://fcm.googleapis.com/v1/projects/$projeto/messages:send'),
+              Uri.parse(
+                  'https://fcm.googleapis.com/v1/projects/$projeto/messages:send'),
               headers: {'content-type': 'application/json'},
               body: jsonEncode({
                 'message': {
@@ -127,7 +130,8 @@ class PushService {
             } else {
               erro = 'FCM HTTP ${resposta.statusCode}';
               if (resposta.statusCode == 400 || resposta.statusCode == 404) {
-                banco.db.execute('DELETE FROM push_tokens WHERE token=?', [token]);
+                banco.db
+                    .execute('DELETE FROM push_tokens WHERE token=?', [token]);
               }
             }
           } catch (e) {
@@ -140,7 +144,11 @@ class PushService {
             UPDATE push_saida
             SET ultimo_envio_em=?, tentativas=tentativas+1, erro=?
             WHERE pedido_id=?
-          ''', [enviado ? agoraIso() : null, erro, int.parse(alerta['referencia'])]);
+          ''', [
+            enviado ? agoraIso() : null,
+            erro,
+            int.parse(alerta['referencia'])
+          ]);
         } else {
           banco.db.execute('''
             UPDATE push_humano

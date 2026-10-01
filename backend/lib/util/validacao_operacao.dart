@@ -13,6 +13,9 @@ class ValidacaoOperacao {
     if (!_estados.contains(estado)) {
       throw ArgumentError('Estado do bot inválido.');
     }
+    if (dados['botAtivo'] is! bool) {
+      throw ArgumentError('O controle principal do bot está inválido.');
+    }
     if (dados['entregaAtiva'] != true && dados['retiradaAtiva'] != true) {
       throw ArgumentError(
           'Configurações > Entrega e retirada: ative pelo menos uma opção.');
@@ -118,6 +121,9 @@ class ValidacaoOperacao {
       ('tamanhos', true),
       ('misturas', false),
       ('acompanhamentos', false),
+      ('bebidas', true),
+      ('arrozes', false),
+      ('feijoes', false),
     ]) {
       final chave = entrada.$1;
       final exigePreco = entrada.$2;
@@ -158,6 +164,21 @@ class ValidacaoOperacao {
             throw ArgumentError(
                 'O tamanho “$nome” precisa ter preço maior que zero.');
           }
+        }
+      }
+    }
+    for (final entrada in const [
+      ('fluxoArrozAtivo', 'arrozes', 'arroz'),
+      ('fluxoFeijaoAtivo', 'feijoes', 'feijão'),
+    ]) {
+      if (cardapio.containsKey(entrada.$1) && cardapio[entrada.$1] is! bool) {
+        throw ArgumentError('O controle do fluxo de ${entrada.$3} é inválido.');
+      }
+      if (cardapio[entrada.$1] == true) {
+        final lista = cardapio[entrada.$2] as List? ?? const [];
+        if (!lista.any((e) => e is Map && e['ativo'] == true)) {
+          throw ArgumentError(
+              'Ative pelo menos uma opção de ${entrada.$3} antes de ligar o fluxo.');
         }
       }
     }
@@ -418,6 +439,27 @@ class ValidacaoOperacao {
       troco['textoSemTroco'].toString(),
       'O texto “sem troco”',
     );
+
+    final bebida = etapa('bebida');
+    texto(bebida, 'mensagem', 'Mensagem de bebidas');
+    texto(bebida, 'tituloLista', 'Título da lista de bebidas', max: 20);
+    texto(bebida, 'botaoSemBebida', 'Botão sem bebida', max: 20);
+    validarComandoReservado(
+        bebida['botaoSemBebida'].toString(), 'O botão sem bebida');
+
+    final quantidadeBebida = etapa('quantidadeBebida');
+    texto(quantidadeBebida, 'mensagem', 'Mensagem de quantidade de bebida');
+    texto(quantidadeBebida, 'ajuda', 'Ajuda de quantidade de bebida');
+    final maximoBebida = (quantidadeBebida['maximo'] as num?)?.toInt() ?? 0;
+    if (maximoBebida < 1 || maximoBebida > 50) {
+      throw ArgumentError(
+          'A quantidade máxima de bebida deve ficar entre 1 e 50.');
+    }
+
+    final outraBebida = etapa('adicionarOutraBebida');
+    texto(outraBebida, 'mensagem', 'Mensagem de adicionar outra bebida');
+    botoesUnicos(
+        outraBebida, ['botaoSim', 'botaoNao'], 'Adicionar outra bebida');
 
     final resumo = etapa('resumo');
     texto(resumo, 'titulo', 'Título do resumo');

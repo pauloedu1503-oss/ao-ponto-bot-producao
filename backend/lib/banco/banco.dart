@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:sqlite3/sqlite3.dart';
 
@@ -35,6 +36,7 @@ class Banco {
       _inserirPadroes();
       _migrarConfiguracaoV12();
       _migrarConfiguracaoV13();
+      _migrarConfiguracaoV14();
       _migrarMensagemPedidoEnviado();
       _sanearEstadoInicial();
       db.execute(
@@ -80,6 +82,26 @@ class Banco {
     ''');
 
     db.execute('''
+      CREATE TABLE IF NOT EXISTS bebidas (
+        id TEXT PRIMARY KEY,
+        nome TEXT NOT NULL,
+        preco REAL NOT NULL,
+        ativo INTEGER NOT NULL DEFAULT 1,
+        ordem INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS bases_opcoes (
+        id TEXT PRIMARY KEY,
+        categoria TEXT NOT NULL CHECK (categoria IN ('arroz','feijao')),
+        nome TEXT NOT NULL,
+        ativo INTEGER NOT NULL DEFAULT 1,
+        ordem INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+
+    db.execute('''
       CREATE TABLE IF NOT EXISTS pedidos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         numero INTEGER UNIQUE,
@@ -103,6 +125,8 @@ class Banco {
     ''');
 
     _adicionarColunaSeAusente('pedidos', 'mensagem_id', 'TEXT');
+    _adicionarColunaSeAusente(
+        'pedidos', 'bebidas_json', "TEXT NOT NULL DEFAULT '[]'");
     _adicionarColunaSeAusente('pedidos', 'motivo_cancelamento', 'TEXT');
     _adicionarColunaSeAusente(
         'pedidos', 'taxa_maquininha', 'REAL NOT NULL DEFAULT 0');
@@ -224,6 +248,7 @@ class Banco {
     if (!configExiste) {
       final config = <String, dynamic>{
         'nomeEstabelecimento': 'Ao Ponto Marmitaria',
+        'botAtivo': true,
         'estadoBot': 'fechado',
         'usarHorarioAutomatico': false,
         'horarios': {
@@ -289,6 +314,11 @@ class Banco {
     if (db.select("SELECT 1 FROM meta WHERE chave='menu_version'").isEmpty) {
       db.execute(
           "INSERT INTO meta (chave, valor) VALUES ('menu_version', '1')");
+    }
+    for (final chave in ['fluxo_arroz_ativo', 'fluxo_feijao_ativo']) {
+      if (db.select('SELECT 1 FROM meta WHERE chave=?', [chave]).isEmpty) {
+        db.execute('INSERT INTO meta(chave, valor) VALUES(?, ?)', [chave, '0']);
+      }
     }
 
     if (!configExiste &&
@@ -411,6 +441,43 @@ class Banco {
     log('INFO', 'mensagem_pedido_enviado_atualizada');
   }
 
+  void _migrarConfiguracaoV14() {
+    final row =
+        db.select('SELECT json, versao FROM configuracao WHERE id = 1').first;
+    final dados =
+        Map<String, dynamic>.from(jsonDecode(row['json'] as String) as Map);
+    var alterou = false;
+    if (dados['botAtivo'] is! bool) {
+      dados['botAtivo'] = true;
+      alterou = true;
+    }
+    final fluxoAtual = dados['fluxo'];
+    final fluxoNovo = mesclarFluxoComPadrao(fluxoAtual);
+    if (jsonEncode(fluxoAtual) != jsonEncode(fluxoNovo)) {
+      dados['fluxo'] = fluxoNovo;
+      alterou = true;
+    }
+    if (alterou) {
+      db.execute(
+        'UPDATE configuracao SET json = ?, versao = ?, atualizado_em = ? WHERE id = 1',
+        [jsonEncode(dados), (row['versao'] as int) + 1, agoraIso()],
+      );
+    }
+
+    // A mudança para códigos aleatórios começa uma numeração limpa. Executa
+    // uma única vez e preserva cardápio, configuração e credenciais.
+    if (db
+        .select("SELECT 1 FROM meta WHERE chave='pedidos_aleatorios_v1'")
+        .isEmpty) {
+      db.execute('DELETE FROM push_saida');
+      db.execute('DELETE FROM pedidos');
+      db.execute(
+          "INSERT INTO meta(chave, valor) VALUES('pedidos_aleatorios_v1','1')");
+      log('INFO', 'migracao_v1_4_bebidas',
+          'Pedidos antigos removidos e códigos aleatórios ativados.');
+    }
+  }
+
   void _sanearEstadoInicial() {
     final wrapper = obterConfiguracao();
     final dados = Map<String, dynamic>.from(wrapper['dados'] as Map);
@@ -492,6 +559,10 @@ class Banco {
         1;
     final rows = db.select(
         'SELECT id, tipo, nome, preco, ativo, ordem FROM cardapio_itens ORDER BY tipo, ordem, nome');
+    final bebidasRows = db.select(
+        'SELECT id, nome, preco, ativo, ordem FROM bebidas ORDER BY ordem, nome');
+    final basesRows = db.select(
+        'SELECT id, categoria, nome, ativo, ordem FROM bases_opcoes ORDER BY categoria, ordem, nome');
     Map<String, dynamic> item(Row r) => {
           'id': r['id'],
           'tipo': r['tipo'],
@@ -507,6 +578,44 @@ class Banco {
       'misturas': itens.where((e) => e['tipo'] == 'mistura').toList(),
       'acompanhamentos':
           itens.where((e) => e['tipo'] == 'acompanhamento').toList(),
+      'bebidas': bebidasRows
+          .map((r) => {
+                'id': r['id'],
+                'tipo': 'bebida',
+                'nome': r['nome'],
+                'preco': r['preco'],
+                'ativo': (r['ativo'] as int) == 1,
+                'ordem': r['ordem'],
+              })
+          .toList(),
+      'fluxoArrozAtivo': db
+              .select("SELECT valor FROM meta WHERE chave='fluxo_arroz_ativo'")
+              .first['valor'] ==
+          '1',
+      'fluxoFeijaoAtivo': db
+              .select("SELECT valor FROM meta WHERE chave='fluxo_feijao_ativo'")
+              .first['valor'] ==
+          '1',
+      'arrozes': basesRows
+          .where((r) => r['categoria'] == 'arroz')
+          .map((r) => {
+                'id': r['id'],
+                'tipo': 'arroz',
+                'nome': r['nome'],
+                'ativo': (r['ativo'] as int) == 1,
+                'ordem': r['ordem'],
+              })
+          .toList(),
+      'feijoes': basesRows
+          .where((r) => r['categoria'] == 'feijao')
+          .map((r) => {
+                'id': r['id'],
+                'tipo': 'feijao',
+                'nome': r['nome'],
+                'ativo': (r['ativo'] as int) == 1,
+                'ordem': r['ordem'],
+              })
+          .toList(),
     };
   }
 
@@ -538,6 +647,8 @@ class Banco {
             'O cardápio foi alterado em outro dispositivo.');
       }
       db.execute('DELETE FROM cardapio_itens');
+      db.execute('DELETE FROM bebidas');
+      db.execute('DELETE FROM bases_opcoes');
       final stmt = db.prepare('''
         INSERT INTO cardapio_itens (id, tipo, nome, preco, ativo, ordem)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -565,6 +676,59 @@ class Banco {
       } finally {
         stmt.dispose();
       }
+      final stmtBebida = db.prepare('''
+        INSERT INTO bebidas (id, nome, preco, ativo, ordem)
+        VALUES (?, ?, ?, ?, ?)
+      ''');
+      try {
+        final lista = corpo['bebidas'] as List? ?? const [];
+        for (var i = 0; i < lista.length; i++) {
+          final item = Map<String, dynamic>.from(lista[i] as Map);
+          final id = (item['id']?.toString().trim().isNotEmpty ?? false)
+              ? item['id'].toString()
+              : 'beb_${DateTime.now().microsecondsSinceEpoch}_$i';
+          stmtBebida.execute([
+            id,
+            item['nome']?.toString().trim() ?? '',
+            (item['preco'] as num?)?.toDouble() ?? 0.0,
+            item['ativo'] == false ? 0 : 1,
+            (item['ordem'] as num?)?.toInt() ?? (i + 1),
+          ]);
+        }
+      } finally {
+        stmtBebida.dispose();
+      }
+      final stmtBase = db.prepare('''
+        INSERT INTO bases_opcoes (id, categoria, nome, ativo, ordem)
+        VALUES (?, ?, ?, ?, ?)
+      ''');
+      try {
+        for (final entrada in const [
+          ('arrozes', 'arroz'),
+          ('feijoes', 'feijao')
+        ]) {
+          final lista = corpo[entrada.$1] as List? ?? const [];
+          for (var i = 0; i < lista.length; i++) {
+            final item = Map<String, dynamic>.from(lista[i] as Map);
+            final id = (item['id']?.toString().trim().isNotEmpty ?? false)
+                ? item['id'].toString()
+                : '${entrada.$2}_${DateTime.now().microsecondsSinceEpoch}_$i';
+            stmtBase.execute([
+              id,
+              entrada.$2,
+              item['nome']?.toString().trim() ?? '',
+              item['ativo'] == false ? 0 : 1,
+              (item['ordem'] as num?)?.toInt() ?? (i + 1),
+            ]);
+          }
+        }
+      } finally {
+        stmtBase.dispose();
+      }
+      db.execute("UPDATE meta SET valor=? WHERE chave='fluxo_arroz_ativo'",
+          [corpo['fluxoArrozAtivo'] == true ? '1' : '0']);
+      db.execute("UPDATE meta SET valor=? WHERE chave='fluxo_feijao_ativo'",
+          [corpo['fluxoFeijaoAtivo'] == true ? '1' : '0']);
       final novaVersao = esperada + 1;
       db.execute("UPDATE meta SET valor = ? WHERE chave='menu_version'",
           [novaVersao.toString()]);
@@ -618,9 +782,10 @@ class Banco {
     ]);
   }
 
-  void definirModoHumano(String telefone, bool ativo) {
+  void definirModoHumano(String telefone, bool ativo,
+      {bool criarAlerta = true}) {
     final sessao = obterSessao(telefone);
-    if (ativo) {
+    if (ativo && criarAlerta) {
       salvarSessao(
           telefone: telefone,
           nome: sessao?['nome'] as String?,
@@ -639,7 +804,7 @@ class Banco {
         modoHumano: ativo,
       );
     }
-    if (ativo) {
+    if (ativo && criarAlerta) {
       final nome = obterSessao(telefone)?['nome']?.toString().trim();
       db.execute('''
         INSERT INTO push_humano(
@@ -660,6 +825,45 @@ class Banco {
     }
     log('INFO', ativo ? 'modo_humano_ativado' : 'modo_humano_desativado',
         telefone);
+  }
+
+  List<Map<String, dynamic>> listarConversasAtivas() {
+    final config = Map<String, dynamic>.from(
+      obterConfiguracao()['dados'] as Map,
+    );
+    final minutos =
+        ((config['sessaoExpiraMinutos'] as num?)?.toInt() ?? 30).clamp(5, 240);
+    // As datas do banco usam o horário comercial configurado, sem sufixo de
+    // fuso. Compare no mesmo relógio para não expirar conversas três horas cedo.
+    final limite = agoraLocal().subtract(Duration(minutes: minutos));
+    final rows = db.select('''
+      SELECT telefone, nome, etapa, ultima_atividade
+      FROM sessoes
+      WHERE modo_humano = 0
+      ORDER BY ultima_atividade DESC
+    ''');
+    return rows
+        .where((r) {
+          final data =
+              DateTime.tryParse(r['ultima_atividade'] as String? ?? '');
+          return data != null && data.isAfter(limite);
+        })
+        .map((r) => {
+              'telefone': r['telefone'],
+              'nome': r['nome'] ?? '',
+              'etapa': r['etapa'],
+              'ultimaAtividade': r['ultima_atividade'],
+            })
+        .toList();
+  }
+
+  void pararBotNaConversa(String telefone) {
+    final sessao = obterSessao(telefone);
+    if (sessao == null || sessao['modoHumano'] == true) {
+      throw StateError('Esta conversa não está mais ativa no bot.');
+    }
+    definirModoHumano(telefone, true, criarAlerta: false);
+    log('INFO', 'bot_parado_na_conversa', telefone);
   }
 
   void retomarModoAutomatico(String telefone) {
@@ -729,9 +933,10 @@ class Banco {
     required double taxaEntrega,
     required double taxaMaquininha,
     required List<Map<String, dynamic>> itens,
+    List<Map<String, dynamic>> bebidas = const [],
   }) {
     final taxaEntregaReal = recebimento == 'entrega' ? taxaEntrega : 0.0;
-    final calculoBase = CalculoPedido(itens, taxaEntregaReal);
+    final calculoBase = CalculoPedido(itens, taxaEntregaReal, bebidas: bebidas);
     final taxaMaquininhaReal = _calcularTaxaMaquininha(
       pagamento,
       calculoBase.subtotal + calculoBase.taxaEntrega,
@@ -739,6 +944,7 @@ class Banco {
     final calculo = CalculoPedido(
       itens,
       taxaEntregaReal,
+      bebidas: bebidas,
       taxaMaquininha: taxaMaquininhaReal,
     );
     if ((calculo.subtotal - subtotal).abs() > 0.001 ||
@@ -764,9 +970,9 @@ class Banco {
         telefone, cliente_nome, status, recebimento, endereco, cep_entrega,
         cidade_entrega, uf_entrega, endereco_validado, pagamento,
         troco_para, observacao, subtotal, taxa_entrega, taxa_maquininha,
-        total, itens_json,
+        total, itens_json, bebidas_json,
         versao, criado_em, atualizado_em
-      ) VALUES (?, ?, 'novo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      ) VALUES (?, ?, 'novo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     ''', [
       telefone,
       clienteNome,
@@ -784,24 +990,37 @@ class Banco {
       taxaMaquininha,
       total,
       jsonEncode(itens),
+      jsonEncode(bebidas),
       agora,
       agora,
     ]);
     final id = db.lastInsertRowId;
+    final numero = _gerarNumeroPedido();
     db.execute('UPDATE pedidos SET numero = ?, mensagem_id = ? WHERE id = ?',
-        [id, mensagemId, id]);
+        [numero, mensagemId, id]);
     db.execute('''
       INSERT OR IGNORE INTO push_saida(
         pedido_id, titulo, corpo, status, tentativas, criado_em
       ) VALUES (?, ?, ?, 'pendente', 0, ?)
     ''', [
       id,
-      'Novo pedido #$id',
+      'Novo pedido #$numero',
       '$clienteNome - R\$ ${total.toStringAsFixed(2).replaceAll('.', ',')}',
       agora,
     ]);
-    log('INFO', 'pedido_criado', '#$id');
+    log('INFO', 'pedido_criado', '#$numero');
     return obterPedido(id)!;
+  }
+
+  int _gerarNumeroPedido() {
+    final random = Random.secure();
+    for (var tentativa = 0; tentativa < 100; tentativa++) {
+      final numero = 10000 + random.nextInt(90000);
+      if (db.select(
+          'SELECT 1 FROM pedidos WHERE numero = ? LIMIT 1', [numero]).isEmpty)
+        return numero;
+    }
+    throw StateError('Não foi possível gerar o código do pedido.');
   }
 
   Map<String, dynamic>? obterPedido(int id) {
@@ -897,6 +1116,7 @@ class Banco {
         'taxaMaquininha': r['taxa_maquininha'],
         'total': r['total'],
         'itens': jsonDecode(r['itens_json'] as String),
+        'bebidas': jsonDecode((r['bebidas_json'] as String?) ?? '[]'),
         'versao': r['versao'],
         'criadoEm': r['criado_em'],
         'atualizadoEm': r['atualizado_em'],
@@ -964,8 +1184,12 @@ class Banco {
       'confirmados': rows['confirmados'] ?? 0,
       'prontos': rows['prontos'] ?? 0,
       'ultimoPedidoId': ultimo,
-      'estadoBot':
-          estadoAtendimentoEfetivo(config['dados'] as Map<String, dynamic>),
+      'estadoBot': (config['dados'] as Map<String, dynamic>)['botAtivo'] ==
+              false
+          ? 'desativado'
+          : estadoAtendimentoEfetivo(config['dados'] as Map<String, dynamic>),
+      'botAtivo':
+          (config['dados'] as Map<String, dynamic>)['botAtivo'] != false,
       'problemasProntidao': ValidacaoOperacao.problemasProntidao(
           config['dados'] as Map<String, dynamic>, obterCardapio()),
       'enviosPendentes': db
@@ -1033,8 +1257,9 @@ class Banco {
         .toList();
   }
 
-  String gerarBackup({String diretorio = 'backups'}) {
-    final dir = Directory(diretorio)..createSync(recursive: true);
+  String gerarBackup({String? diretorio}) {
+    final caminho = diretorio ?? Env.get('BACKUP_PATH', padrao: 'backups');
+    final dir = Directory(caminho)..createSync(recursive: true);
     final arquivo = File(dir.path +
         '/backup_' +
         DateTime.now().microsecondsSinceEpoch.toString() +

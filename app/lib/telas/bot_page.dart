@@ -167,6 +167,24 @@ class BotPage extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             PainelCard(
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(
+                  child: Icon(Icons.forum_outlined),
+                ),
+                title: const Text(
+                  'Conversas ativas',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text(
+                  'Veja quem está conversando com o bot e interrompa somente uma conversa.',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _abrirConversasAtivas(context),
+              ),
+            ),
+            const SizedBox(height: 16),
+            PainelCard(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -299,6 +317,206 @@ class BotPage extends StatelessWidget {
     } catch (e) {
       if (context.mounted) await mostrarErro(context, e);
     }
+  }
+
+  Future<void> _abrirConversasAtivas(BuildContext context) async {
+    try {
+      await controller.carregarConversasAtivas();
+    } catch (e) {
+      if (context.mounted) await mostrarErro(context, e);
+      return;
+    }
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setLocal) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: .72,
+          minChildSize: .4,
+          maxChildSize: .95,
+          builder: (sheetContext, scroll) {
+            final conversas = controller.conversasAtivas;
+            return ListView(
+              controller: scroll,
+              padding: const EdgeInsets.all(20),
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Conversas ativas',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Atualizar',
+                      onPressed: () async {
+                        try {
+                          await controller.carregarConversasAtivas();
+                          setLocal(() {});
+                        } catch (e) {
+                          if (sheetContext.mounted) {
+                            await mostrarErro(sheetContext, e);
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'São exibidas as conversas que tiveram atividade dentro do tempo de expiração configurado.',
+                  style: TextStyle(color: Colors.black54),
+                ),
+                const SizedBox(height: 16),
+                if (conversas.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 28),
+                    child: Center(
+                      child: Text('Nenhuma conversa ativa no momento.'),
+                    ),
+                  )
+                else
+                  for (final conversa in conversas)
+                    Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const CircleAvatar(
+                                  child: Icon(Icons.person_outline),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        conversa['nome']
+                                                    ?.toString()
+                                                    .trim()
+                                                    .isNotEmpty ==
+                                                true
+                                            ? conversa['nome'].toString()
+                                            : conversa['telefone'].toString(),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      Text(
+                                        conversa['telefone']?.toString() ?? '',
+                                        style: const TextStyle(
+                                          color: Colors.black54,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Etapa atual: ${_nomeEtapa(conversa['etapa']?.toString() ?? '')}',
+                              style: const TextStyle(color: Colors.black54),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.tonalIcon(
+                                icon: const Icon(Icons.stop_circle_outlined),
+                                label: const Text('Parar bot nesta conversa'),
+                                onPressed: () async {
+                                  final parou = await _confirmarPararConversa(
+                                    sheetContext,
+                                    conversa,
+                                  );
+                                  if (parou) setLocal(() {});
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _confirmarPararConversa(
+    BuildContext context,
+    Map<String, dynamic> conversa,
+  ) async {
+    final telefone = conversa['telefone']?.toString() ?? '';
+    final nome = conversa['nome']?.toString().trim() ?? '';
+    final confirmou = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Parar o bot nesta conversa?'),
+        content: Text(
+          'O bot deixará de responder ${nome.isEmpty ? telefone : nome}. '
+          'A conversa irá para Atendimento humano e poderá ser retomada depois.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Parar bot'),
+          ),
+        ],
+      ),
+    );
+    if (confirmou != true) return false;
+    try {
+      await controller.pararBotNaConversa(telefone);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Conversa movida para Atendimento humano.'),
+          ),
+        );
+      }
+      return true;
+    } catch (e) {
+      if (context.mounted) await mostrarErro(context, e);
+      return false;
+    }
+  }
+
+  String _nomeEtapa(String etapa) {
+    const nomes = {
+      'inicio': 'Menu inicial',
+      'tamanho': 'Escolhendo tamanho',
+      'mistura': 'Escolhendo mistura',
+      'acompanhamento': 'Escolhendo acompanhamento',
+      'observacao': 'Observações',
+      'bebida': 'Escolhendo bebida',
+      'quantidadeBebida': 'Quantidade da bebida',
+      'adicionarOutraBebida': 'Adicionando bebidas',
+      'recebimento': 'Entrega ou retirada',
+      'endereco': 'Informando endereço',
+      'pagamento': 'Forma de pagamento',
+      'confirmacao': 'Confirmando pedido',
+    };
+    return nomes[etapa] ?? 'Atendimento em andamento';
   }
 
   Future<void> _abrirEnvios(BuildContext context) async {

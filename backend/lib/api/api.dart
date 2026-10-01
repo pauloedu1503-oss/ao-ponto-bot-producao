@@ -84,6 +84,9 @@ class Api {
       ..put('/api/pedidos/<id|[0-9]+>/status', _protegido1(_pedidoStatus))
       ..get('/api/humanos', _protegido(_humanosGet))
       ..put('/api/humanos/<telefone>', _protegido1(_humanoPut))
+      ..get('/api/conversas-ativas', _protegido(_conversasAtivasGet))
+      ..post('/api/conversas-ativas/<telefone>/parar',
+          _protegido1(_conversaAtivaParar))
       ..post('/api/humanos/<telefone>/parar-alerta',
           _protegido1(_humanoPararAlerta))
       ..get('/api/logs', _protegido(_logsGet))
@@ -417,6 +420,14 @@ class Api {
   }
 
   Response _humanosGet(Request _) => jsonResponse(banco.listarSessoesHumanas());
+
+  Response _conversasAtivasGet(Request _) =>
+      jsonResponse(banco.listarConversasAtivas());
+
+  Response _conversaAtivaParar(Request _, String telefone) {
+    banco.pararBotNaConversa(Uri.decodeComponent(telefone));
+    return jsonResponse({'ok': true});
+  }
 
   Future<Response> _humanoPut(Request request, String telefone) async {
     final body = await lerJson(request);

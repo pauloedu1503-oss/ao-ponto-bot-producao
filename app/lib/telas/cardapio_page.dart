@@ -13,6 +13,9 @@ class CardapioPage extends StatelessWidget {
     final tamanhos = _lista(cardapio['tamanhos']);
     final misturas = _lista(cardapio['misturas']);
     final acompanhamentos = _lista(cardapio['acompanhamentos']);
+    final bebidas = _lista(cardapio['bebidas']);
+    final arrozes = _lista(cardapio['arrozes']);
+    final feijoes = _lista(cardapio['feijoes']);
 
     return SafeArea(
       child: RefreshIndicator(
@@ -37,6 +40,61 @@ class CardapioPage extends StatelessWidget {
                         onEditar: () =>
                             _editar(context, tipo: 'tamanho', existente: i),
                         onExcluir: () => _excluir(context, i, 'tamanhos'),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 16),
+            _FluxoBase(
+              titulo: 'Fluxo do arroz',
+              descricao: cardapio['fluxoArrozAtivo'] == true
+                  ? 'O cliente escolhe uma opção de arroz em cada marmita.'
+                  : 'Desligado: o bot continua informando arroz + feijão como hoje.',
+              ativo: cardapio['fluxoArrozAtivo'] == true,
+              onAtivar: (v) => _toggleFluxo(context, 'fluxoArrozAtivo', v),
+              onAdicionar: () => _editar(context, tipo: 'arroz'),
+              children: arrozes
+                  .map((i) => _ItemCard(
+                        item: i,
+                        onToggle: (v) => _toggle(context, i, 'arrozes', v),
+                        onEditar: () =>
+                            _editar(context, tipo: 'arroz', existente: i),
+                        onExcluir: () => _excluir(context, i, 'arrozes'),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 16),
+            _FluxoBase(
+              titulo: 'Fluxo do feijão',
+              descricao: cardapio['fluxoFeijaoAtivo'] == true
+                  ? 'O cliente escolhe uma opção de feijão em cada marmita.'
+                  : 'Desligado: não cria uma pergunta separada para feijão.',
+              ativo: cardapio['fluxoFeijaoAtivo'] == true,
+              onAtivar: (v) => _toggleFluxo(context, 'fluxoFeijaoAtivo', v),
+              onAdicionar: () => _editar(context, tipo: 'feijao'),
+              children: feijoes
+                  .map((i) => _ItemCard(
+                        item: i,
+                        onToggle: (v) => _toggle(context, i, 'feijoes', v),
+                        onEditar: () =>
+                            _editar(context, tipo: 'feijao', existente: i),
+                        onExcluir: () => _excluir(context, i, 'feijoes'),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 16),
+            _Secao(
+              titulo: 'Bebidas',
+              descricao:
+                  'Defina o preço e desative rapidamente quando uma bebida esgotar.',
+              onAdicionar: () => _editar(context, tipo: 'bebida'),
+              children: bebidas
+                  .map((i) => _ItemCard(
+                        item: i,
+                        subtitulo: dinheiro(i['preco']),
+                        onToggle: (v) => _toggle(context, i, 'bebidas', v),
+                        onEditar: () =>
+                            _editar(context, tipo: 'bebida', existente: i),
+                        onExcluir: () => _excluir(context, i, 'bebidas'),
                       ))
                   .toList(),
             ),
@@ -101,13 +159,27 @@ class CardapioPage extends StatelessWidget {
     }
   }
 
+  Future<void> _toggleFluxo(
+      BuildContext context, String campo, bool ativo) async {
+    final novo = copiaMapa(controller.cardapio);
+    novo[campo] = ativo;
+    try {
+      await controller.salvarCardapio(novo);
+    } catch (e) {
+      if (context.mounted) await mostrarErro(context, e);
+    }
+  }
+
   Future<void> _editar(BuildContext context,
       {required String tipo, Map<String, dynamic>? existente}) async {
     final base = copiaMapa(controller.cardapio);
     final chave = switch (tipo) {
       'tamanho' => 'tamanhos',
       'mistura' => 'misturas',
-      _ => 'acompanhamentos'
+      'acompanhamento' => 'acompanhamentos',
+      'arroz' => 'arrozes',
+      'feijao' => 'feijoes',
+      _ => 'bebidas'
     };
     await editarCampos(context,
         titulo: existente == null ? 'Adicionar $tipo' : 'Editar $tipo',
@@ -118,7 +190,7 @@ class CardapioPage extends StatelessWidget {
                   : v.length > 60
                       ? 'Use até 60 caracteres.'
                       : null),
-          if (tipo == 'tamanho')
+          if (tipo == 'tamanho' || tipo == 'bebida')
             CampoEdicao(
                 'preco', r'Preço (R$)', existente?['preco']?.toString() ?? '',
                 validar: (v) => validarDinheiro(v, permitirZero: false)),
@@ -135,7 +207,7 @@ class CardapioPage extends StatelessWidget {
           : lista.firstWhere((e) => e['id'] == existente['id'])
               as Map<String, dynamic>;
       item['nome'] = valores['nome'];
-      if (tipo == 'tamanho') {
+      if (tipo == 'tamanho' || tipo == 'bebida') {
         item['preco'] = double.parse(valores['preco']!.replaceAll(',', '.'));
       }
       if (existente == null && !lista.contains(item)) lista.add(item);
@@ -216,6 +288,64 @@ class _Secao extends StatelessWidget {
             const Padding(
                 padding: EdgeInsets.symmetric(vertical: 18),
                 child: Text('Nenhuma opção cadastrada.'))
+          else
+            ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _FluxoBase extends StatelessWidget {
+  final String titulo;
+  final String descricao;
+  final bool ativo;
+  final ValueChanged<bool> onAtivar;
+  final VoidCallback onAdicionar;
+  final List<Widget> children;
+  const _FluxoBase({
+    required this.titulo,
+    required this.descricao,
+    required this.ativo,
+    required this.onAtivar,
+    required this.onAdicionar,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PainelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: ativo,
+            onChanged: onAtivar,
+            title: Text(titulo,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            subtitle: Text(descricao),
+          ),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Opções cadastradas',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+              IconButton.filledTonal(
+                onPressed: onAdicionar,
+                tooltip: 'Adicionar opção',
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (children.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text('Adicione pelo menos uma opção antes de ativar.'),
+            )
           else
             ...children,
         ],

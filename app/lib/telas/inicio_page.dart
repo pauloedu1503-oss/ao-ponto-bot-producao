@@ -13,6 +13,7 @@ class InicioPage extends StatelessWidget {
     final configDados = Map<String, dynamic>.from(
         controller.configuracao['dados'] as Map? ?? {});
     final horarioAutomatico = configDados['usarHorarioAutomatico'] == true;
+    final botAtivo = configDados['botAtivo'] != false;
     final abertos = controller.pedidos
         .where((p) => !['finalizado', 'cancelado'].contains(p['status']))
         .take(6)
@@ -70,39 +71,79 @@ class InicioPage extends StatelessWidget {
                   const Text('Controle rápido do bot',
                       style:
                           TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 10),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: botAtivo,
+                    title: Text(
+                      botAtivo ? 'Bot ativado' : 'Bot desativado',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: botAtivo ? Colors.green.shade800 : Colors.red,
+                      ),
+                    ),
+                    subtitle: Text(botAtivo
+                        ? 'As mensagens são visualizadas e respondidas automaticamente.'
+                        : 'As mensagens não são visualizadas nem respondidas pelo bot.'),
+                    secondary: Icon(
+                      botAtivo
+                          ? Icons.smart_toy_outlined
+                          : Icons.power_settings_new,
+                      color: botAtivo ? Colors.green.shade800 : Colors.red,
+                    ),
+                    onChanged: controller.salvandoConfig
+                        ? null
+                        : (v) async {
+                            try {
+                              await controller.definirBotAtivo(v);
+                            } catch (e) {
+                              if (context.mounted) {
+                                await mostrarErro(context, e);
+                              }
+                            }
+                          },
+                  ),
+                  const Divider(height: 24),
                   Text(
-                    horarioAutomatico
-                        ? 'Horário automático está ativo. Fora do horário, o estado efetivo fica Fechado.'
-                        : 'O estado manual controla o atendimento.',
+                    !botAtivo
+                        ? 'Ative o bot para usar os controles de atendimento.'
+                        : horarioAutomatico
+                            ? 'Horário automático está ativo. Fora do horário, o estado efetivo fica Fechado.'
+                            : 'O estado manual controla o atendimento.',
                     style: const TextStyle(color: Colors.black54),
                   ),
                   const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _EstadoButton(
-                          controller: controller,
-                          estado: 'atendendo',
-                          icon: Icons.play_circle_outline,
-                          label: 'Atender'),
-                      _EstadoButton(
-                          controller: controller,
-                          estado: 'pausado',
-                          icon: Icons.pause_circle_outline,
-                          label: 'Pausar'),
-                      _EstadoButton(
-                          controller: controller,
-                          estado: 'esgotado',
-                          icon: Icons.inventory_2_outlined,
-                          label: 'Esgotou'),
-                      _EstadoButton(
-                          controller: controller,
-                          estado: 'fechado',
-                          icon: Icons.storefront_outlined,
-                          label: 'Fechar'),
-                    ],
+                  IgnorePointer(
+                    ignoring: !botAtivo,
+                    child: Opacity(
+                      opacity: botAtivo ? 1 : .45,
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _EstadoButton(
+                              controller: controller,
+                              estado: 'atendendo',
+                              icon: Icons.play_circle_outline,
+                              label: 'Atender'),
+                          _EstadoButton(
+                              controller: controller,
+                              estado: 'pausado',
+                              icon: Icons.pause_circle_outline,
+                              label: 'Pausar'),
+                          _EstadoButton(
+                              controller: controller,
+                              estado: 'esgotado',
+                              icon: Icons.inventory_2_outlined,
+                              label: 'Esgotou'),
+                          _EstadoButton(
+                              controller: controller,
+                              estado: 'fechado',
+                              icon: Icons.storefront_outlined,
+                              label: 'Fechar'),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
