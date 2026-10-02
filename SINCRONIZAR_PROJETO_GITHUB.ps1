@@ -61,7 +61,9 @@ try {
         foreach ($caminho in $arquivos) {
             $absoluto = Join-Path $raiz $caminho
             if (-not (Test-Path -LiteralPath $absoluto -PathType Leaf)) { continue }
-            $shaLocal = (git hash-object -- $caminho).Trim()
+            # O envio usa os bytes exatos do arquivo; compare com esses mesmos
+            # bytes para não criar commits repetidos por conversão LF/CRLF.
+            $shaLocal = (git hash-object --no-filters -- $caminho).Trim()
             if ($LASTEXITCODE -ne 0) { throw "Falha ao verificar $caminho." }
             if ($shasRemotos[$caminho] -eq $shaLocal) { continue }
 
