@@ -6,6 +6,7 @@ import '../lib/api/api.dart';
 import '../lib/banco/banco.dart';
 import '../lib/bot/bot_service.dart';
 import '../lib/servicos/auth_service.dart';
+import '../lib/servicos/groq_atendimento_service.dart';
 import '../lib/servicos/push_service.dart';
 import '../lib/servicos/whatsapp_service.dart';
 import '../lib/util/env.dart';
@@ -33,8 +34,9 @@ Future<void> main() async {
   final banco = Banco();
   final auth = AuthService(banco);
   final whatsapp = WhatsAppService(banco);
+  final ia = GroqAtendimentoService();
   final push = PushService(banco);
-  final bot = BotService(banco, whatsapp);
+  final bot = BotService(banco, whatsapp, ia: ia);
   final api = Api(banco, auth, bot, push);
 
   final host = Env.get('HOST', padrao: '0.0.0.0');
@@ -54,6 +56,7 @@ Future<void> main() async {
     await server.close();
     await api.fechar();
     whatsapp.fechar();
+    ia.fechar();
     push.fechar();
     banco.fechar();
     exit(0);

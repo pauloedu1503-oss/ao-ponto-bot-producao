@@ -159,10 +159,10 @@ class BotPage extends StatelessWidget {
                 title: const Text('Expiração da conversa',
                     style: TextStyle(fontWeight: FontWeight.w800)),
                 subtitle: Text(
-                    '${dados['sessaoExpiraMinutos'] ?? 30} minutos sem atividade'),
+                    '${dados['sessaoExpiraMinutos'] ?? 60} minutos sem atividade'),
                 trailing: const Icon(Icons.edit_outlined),
                 onTap: () => _editarTimeout(context,
-                    (dados['sessaoExpiraMinutos'] as num?)?.toInt() ?? 30),
+                    (dados['sessaoExpiraMinutos'] as num?)?.toInt() ?? 60),
               ),
             ),
             const SizedBox(height: 16),

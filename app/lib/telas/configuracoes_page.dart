@@ -30,6 +30,48 @@ class ConfiguracoesPage extends StatelessWidget {
             const SizedBox(height: 18),
             PainelCard(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Modo de atendimento',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'bot', label: Text('Bot')),
+                      ButtonSegment(value: 'ia', label: Text('IA')),
+                    ],
+                    selected: {
+                      d['modoAtendimento'] == 'ia' ? 'ia' : 'bot',
+                    },
+                    onSelectionChanged: (selecionado) => _alterarCampo(
+                      context,
+                      'modoAtendimento',
+                      selecionado.first,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    d['modoAtendimento'] == 'ia'
+                        ? (controller.configuracao['iaConfigurada'] == true
+                            ? 'IA ativada. Se a Groq falhar ou atingir o limite, o fluxo atual do bot assume automaticamente.'
+                            : 'A chave GROQ_API_KEY ainda não está configurada no servidor. Até configurá-la, o atendimento continuará pelo fluxo atual do bot.')
+                        : 'Usa o fluxo atual de atendimento.',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  if (d['modoAtendimento'] == 'ia') ...[
+                    const SizedBox(height: 6),
+                    const Text(
+                      'No modo IA, a mensagem do cliente e os dados disponíveis do cardápio/atendimento são enviados à Groq para interpretação. A chave fica somente no servidor.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            PainelCard(
+              child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Estabelecimento',
@@ -128,7 +170,7 @@ class ConfiguracoesPage extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       value: d['permitirObservacoes'] == true,
                       title: const Text('Permitir observações'),
-                      subtitle: const Text('Ex.: sem feijão, pouca salada.'),
+                      subtitle: const Text('Ex.: sem feijão.'),
                       onChanged: (v) =>
                           _alterarCampo(context, 'permitirObservacoes', v),
                     ),

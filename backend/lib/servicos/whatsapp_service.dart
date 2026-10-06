@@ -73,6 +73,18 @@ class WhatsAppService {
       await enviarTexto(telefone, _textoNumerado(texto, botoes));
       return;
     }
+    final originais = botoes;
+    if (botoes.any((b) => (b['titulo'] ?? '').runes.length > 20)) {
+      texto = _textoNumerado(texto, botoes);
+      if (texto.runes.length > 1024) {
+        await enviarTexto(telefone, texto);
+        return;
+      }
+      botoes = [
+        for (var i = 0; i < originais.length; i++)
+          {...originais[i], 'titulo': '${i + 1}'}
+      ];
+    }
     botoes = _identificarOpcoes(telefone, botoes);
     await _enviar({
       'messaging_product': 'whatsapp',
@@ -111,6 +123,26 @@ class WhatsAppService {
     if (texto.runes.length > 1024 || opcoes.length > 10) {
       await enviarTexto(telefone, _textoNumerado(texto, opcoes));
       return;
+    }
+    final originais = opcoes;
+    if (opcoes.any((o) => (o['titulo'] ?? '').runes.length > 24)) {
+      texto = _textoNumerado(texto, opcoes);
+      if (texto.runes.length > 1024) {
+        await enviarTexto(telefone, texto);
+        return;
+      }
+      opcoes = [
+        for (var i = 0; i < originais.length; i++)
+          {
+            ...originais[i],
+            'titulo': '${i + 1}',
+            'descricao': [
+              originais[i]['titulo'] ?? '',
+              if ((originais[i]['descricao'] ?? '').isNotEmpty)
+                originais[i]['descricao']!,
+            ].join(' — '),
+          }
+      ];
     }
     opcoes = _identificarOpcoes(telefone, opcoes);
     final rows = opcoes.map((o) {

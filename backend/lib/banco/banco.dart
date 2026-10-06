@@ -38,6 +38,8 @@ class Banco {
       _migrarConfiguracaoV13();
       _migrarConfiguracaoV14();
       _migrarMensagemPedidoEnviado();
+      _migrarExemploObservacao();
+      _migrarTimeoutSessao60Minutos();
       _sanearEstadoInicial();
       db.execute(
           "UPDATE push_saida SET status = 'pendente' WHERE status = 'enviando'");
@@ -249,6 +251,7 @@ class Banco {
       final config = <String, dynamic>{
         'nomeEstabelecimento': 'Ao Ponto Marmitaria',
         'botAtivo': true,
+        'modoAtendimento': 'bot',
         'estadoBot': 'fechado',
         'usarHorarioAutomatico': false,
         'horarios': {
@@ -260,7 +263,7 @@ class Banco {
           '6': {'ativo': true, 'inicio': '10:00', 'fim': '14:00'},
           '7': {'ativo': false, 'inicio': '10:00', 'fim': '14:00'},
         },
-        'sessaoExpiraMinutos': 30,
+        'sessaoExpiraMinutos': 60,
         'entregaAtiva': true,
         'retiradaAtiva': true,
         'taxaEntrega': 0.0,
@@ -439,6 +442,49 @@ class Banco {
       [jsonEncode(dados), (row['versao'] as int) + 1, agoraIso()],
     );
     log('INFO', 'mensagem_pedido_enviado_atualizada');
+  }
+
+  void _migrarExemploObservacao() {
+    final row =
+        db.select('SELECT json, versao FROM configuracao WHERE id = 1').first;
+    final dados =
+        Map<String, dynamic>.from(jsonDecode(row['json'] as String) as Map);
+    final fluxo = Map<String, dynamic>.from(dados['fluxo'] as Map? ?? {});
+    final observacao =
+        Map<String, dynamic>.from(fluxo['observacao'] as Map? ?? {});
+    const anterior =
+        'Deseja alguma observação?\nEx.: sem feijão, pouca salada.';
+    if (observacao['mensagem'] != anterior) return;
+    observacao['mensagem'] = 'Deseja alguma observação?\nEx.: sem feijão.';
+    fluxo['observacao'] = observacao;
+    dados['fluxo'] = fluxo;
+    db.execute(
+      'UPDATE configuracao SET json = ?, versao = ?, atualizado_em = ? WHERE id = 1',
+      [jsonEncode(dados), (row['versao'] as int) + 1, agoraIso()],
+    );
+    log('INFO', 'exemplo_observacao_atualizado');
+  }
+
+  void _migrarTimeoutSessao60Minutos() {
+    const chave = 'sessao_expira_60_minutos_v1';
+    if (db.select('SELECT 1 FROM meta WHERE chave = ?', [chave]).isNotEmpty) {
+      return;
+    }
+
+    final row =
+        db.select('SELECT json, versao FROM configuracao WHERE id = 1').first;
+    final dados =
+        Map<String, dynamic>.from(jsonDecode(row['json'] as String) as Map);
+    if (dados['sessaoExpiraMinutos'] != 60) {
+      dados['sessaoExpiraMinutos'] = 60;
+      db.execute(
+        'UPDATE configuracao SET json = ?, versao = ?, atualizado_em = ? WHERE id = 1',
+        [jsonEncode(dados), (row['versao'] as int) + 1, agoraIso()],
+      );
+    }
+    db.execute('INSERT INTO meta(chave, valor) VALUES(?, ?)', [chave, '1']);
+    log('INFO', 'expiracao_conversa_60_minutos',
+        'Tempo de expiração da conversa atualizado para 60 minutos.');
   }
 
   void _migrarConfiguracaoV14() {
@@ -832,7 +878,7 @@ class Banco {
       obterConfiguracao()['dados'] as Map,
     );
     final minutos =
-        ((config['sessaoExpiraMinutos'] as num?)?.toInt() ?? 30).clamp(5, 240);
+        ((config['sessaoExpiraMinutos'] as num?)?.toInt() ?? 60).clamp(5, 240);
     // As datas do banco usam o horário comercial configurado, sem sufixo de
     // fuso. Compare no mesmo relógio para não expirar conversas três horas cedo.
     final limite = agoraLocal().subtract(Duration(minutes: minutos));

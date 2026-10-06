@@ -57,7 +57,7 @@ Map<String, dynamic> fluxoPadrao() => {
         'textoSemTroco': 'não',
       },
       'observacao': {
-        'mensagem': 'Deseja alguma observação?\nEx.: sem feijão, pouca salada.',
+        'mensagem': 'Deseja alguma observação?\nEx.: sem feijão.',
         'mensagemAlterar': 'Altere sua observação.',
         'textoNenhuma': 'não',
       },

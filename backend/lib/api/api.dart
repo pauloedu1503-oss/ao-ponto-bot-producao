@@ -23,6 +23,7 @@ class Api {
 
   Timer? _timer;
   bool _processando = false;
+  DateTime _ultimaManutencaoMemoria = DateTime.now();
   Api(this.banco, this.auth, this.bot, this.push);
 
   void iniciarWorker() {
@@ -61,10 +62,34 @@ class Api {
       }
       await bot.whatsapp.drenar();
       await push.drenar();
+      _manutencaoDiariaMemoria();
     } catch (e) {
       banco.log('ERROR', 'worker_erro', e.runtimeType.toString());
     } finally {
       _processando = false;
+    }
+  }
+
+  void _manutencaoDiariaMemoria() {
+    final agora = DateTime.now();
+    if (agora.difference(_ultimaManutencaoMemoria) <
+        const Duration(hours: 24)) {
+      return;
+    }
+    _ultimaManutencaoMemoria = agora;
+
+    try {
+      final antesMb = ProcessInfo.currentRss ~/ (1024 * 1024);
+      banco.db.execute('PRAGMA shrink_memory');
+      final depoisMb = ProcessInfo.currentRss ~/ (1024 * 1024);
+      banco.log(
+        'INFO',
+        'manutencao_diaria_memoria',
+        'RSS antes: ${antesMb}MB; depois: ${depoisMb}MB.',
+      );
+    } catch (e) {
+      banco.log(
+          'WARN', 'manutencao_diaria_memoria_falhou', e.runtimeType.toString());
     }
   }
 
@@ -335,21 +360,28 @@ class Api {
 
   Response _bootstrap(Request _) => jsonResponse({
         'dashboard': banco.dashboard(),
-        'configuracao': banco.obterConfiguracao(),
+        'configuracao': _configuracaoPainel(),
         'cardapio': banco.obterCardapio(),
         'pedidos': banco.listarPedidos(limite: 50),
         'humanos': banco.listarSessoesHumanas(),
       });
 
   Response _dashboard(Request _) => jsonResponse(banco.dashboard());
-  Response _configGet(Request _) => jsonResponse(banco.obterConfiguracao());
+  Map<String, dynamic> _configuracaoPainel() => {
+        ...banco.obterConfiguracao(),
+        // Expõe apenas o status, nunca o segredo do provedor.
+        'iaConfigurada': bot.ia.configurado,
+      };
+
+  Response _configGet(Request _) => jsonResponse(_configuracaoPainel());
 
   Future<Response> _configPut(Request request) async {
     final body = await lerJson(request);
     final versao = (body['versao'] as num?)?.toInt() ?? -1;
     final dados = Map<String, dynamic>.from(body['dados'] as Map? ?? {});
     if (dados.isEmpty) throw const FormatException('Configuração vazia.');
-    return jsonResponse(banco.atualizarConfiguracao(dados, versao));
+    final atualizado = banco.atualizarConfiguracao(dados, versao);
+    return jsonResponse({...atualizado, 'iaConfigurada': bot.ia.configurado});
   }
 
   Response _cardapioGet(Request _) => jsonResponse(banco.obterCardapio());

@@ -16,6 +16,9 @@ class ValidacaoOperacao {
     if (dados['botAtivo'] is! bool) {
       throw ArgumentError('O controle principal do bot está inválido.');
     }
+    if (!{'bot', 'ia'}.contains(dados['modoAtendimento'] ?? 'bot')) {
+      throw ArgumentError('Modo de atendimento inválido.');
+    }
     if (dados['entregaAtiva'] != true && dados['retiradaAtiva'] != true) {
       throw ArgumentError(
           'Configurações > Entrega e retirada: ative pelo menos uma opção.');
@@ -28,7 +31,7 @@ class ValidacaoOperacao {
           'Configurações > Pagamento: ative pelo menos uma forma.');
     }
 
-    final expira = (dados['sessaoExpiraMinutos'] as num?)?.toInt() ?? 30;
+    final expira = (dados['sessaoExpiraMinutos'] as num?)?.toInt() ?? 60;
     if (expira < 5 || expira > 240) {
       throw ArgumentError(
           'A expiração da conversa deve ficar entre 5 e 240 minutos.');

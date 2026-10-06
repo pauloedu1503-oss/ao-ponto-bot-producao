@@ -15,6 +15,7 @@ import '../lib/servicos/auth_service.dart';
 import '../lib/servicos/push_service.dart';
 import '../lib/servicos/whatsapp_service.dart';
 import '../lib/util/calculo_pedido.dart';
+import '../lib/util/data_hora.dart';
 import '../lib/util/env.dart';
 import '../bin/restaurar.dart' as restauracao;
 
@@ -176,6 +177,13 @@ void main() {
       'rec_retirada',
       'pag_pix',
       'não',
+    ]) {
+      await enviar(texto);
+    }
+    final opcoesBebida = jsonEncode(wa.consumirMensagensSimuladas().last);
+    expect(opcoesBebida, contains(r'Coca-Cola lata R$ 3,00'));
+
+    for (final texto in [
       '1',
       '2',
       'beb_finalizar',
@@ -188,6 +196,139 @@ void main() {
     expect(pedido['total'], 14);
     expect(pedido['bebidas'], hasLength(1));
     expect(pedido['bebidas'][0]['quantidade'], 2);
+  });
+
+  test('negações naturais pulam bebida e preservam escolha afirmativa',
+      () async {
+    final menu = banco.obterCardapio();
+    menu['bebidas'] = [
+      {
+        'id': 'beb_coca',
+        'tipo': 'bebida',
+        'nome': 'Coca-Cola',
+        'preco': 3.0,
+        'ativo': true,
+        'ordem': 1,
+      }
+    ];
+    banco.atualizarCardapio(menu);
+
+    Future<void> chegarNasBebidas(String telefone) async {
+      for (final texto in [
+        'inicio_pedido',
+        '1',
+        '1',
+        '1',
+        '1',
+        'outro_nao',
+        'rec_retirada',
+        'pag_pix',
+        'não',
+      ]) {
+        await enviar(texto, telefone: telefone);
+      }
+      expect(banco.obterSessao(telefone)?['etapa'], 'bebida');
+    }
+
+    const negacoes = [
+      'sem',
+      'não',
+      'n',
+      'n quero',
+      'não quero bebida',
+      'não precisa',
+      'não obrigado',
+      'dispenso',
+      'nenhuma bebida',
+      'pode deixar',
+    ];
+    for (var i = 0; i < negacoes.length; i++) {
+      final telefone = '55148888000$i';
+      await chegarNasBebidas(telefone);
+      await enviar(negacoes[i], telefone: telefone);
+      final sessaoAtual = banco.obterSessao(telefone)!;
+      expect(sessaoAtual['etapa'], 'confirmacao', reason: negacoes[i]);
+      expect(sessaoAtual['dados']['bebidas'], isEmpty,
+          reason: negacoes[i]);
+      wa.consumirMensagensSimuladas();
+    }
+
+    const telefonePositivo = '5514777700001';
+    await chegarNasBebidas(telefonePositivo);
+    await enviar('Quero uma Coca-Cola', telefone: telefonePositivo);
+    expect(banco.obterSessao(telefonePositivo)?['etapa'],
+        'quantidade_bebida');
+  });
+
+  test('negações naturais finalizam outra marmita e outra bebida', () async {
+    final menu = banco.obterCardapio();
+    menu['bebidas'] = [
+      {
+        'id': 'beb_coca',
+        'tipo': 'bebida',
+        'nome': 'Coca-Cola',
+        'preco': 3.0,
+        'ativo': true,
+        'ordem': 1,
+      }
+    ];
+    banco.atualizarCardapio(menu);
+
+    const telefoneMarmita = '5514777700002';
+    for (final texto in ['inicio_pedido', '1', '1', '1', '1']) {
+      await enviar(texto, telefone: telefoneMarmita);
+    }
+    await enviar('não quero outra marmita', telefone: telefoneMarmita);
+    expect(banco.obterSessao(telefoneMarmita)?['etapa'], 'recebimento');
+
+    const telefoneBebida = '5514777700003';
+    for (final texto in [
+      'inicio_pedido',
+      '1',
+      '1',
+      '1',
+      '1',
+      'outro_nao',
+      'rec_retirada',
+      'pag_pix',
+      'não',
+      '1',
+      '2',
+    ]) {
+      await enviar(texto, telefone: telefoneBebida);
+    }
+    expect(banco.obterSessao(telefoneBebida)?['etapa'],
+        'adicionar_outra_bebida');
+    await enviar('n quero', telefone: telefoneBebida);
+    final sessaoBebida = banco.obterSessao(telefoneBebida)!;
+    expect(sessaoBebida['etapa'], 'confirmacao');
+    expect(sessaoBebida['dados']['bebidas'], hasLength(1));
+  });
+
+  test('negação natural de troco e observação não perde texto válido', () async {
+    final menu = banco.obterCardapio();
+    menu['bebidas'] = <dynamic>[];
+    banco.atualizarCardapio(menu);
+
+    for (final texto in [
+      'inicio_pedido',
+      '1',
+      '1',
+      '1',
+      '1',
+      'outro_nao',
+      'rec_retirada',
+      'pag_dinheiro',
+    ]) {
+      await enviar(texto);
+    }
+    expect(sessao()['etapa'], 'troco');
+    await enviar('n quero');
+    expect(sessao()['etapa'], 'observacao');
+
+    await enviar('sem cebola');
+    expect(sessao()['etapa'], 'confirmacao');
+    expect(sessao()['dados']['observacao'], 'sem cebola');
   });
 
   test('fluxos de arroz e feijão são independentes e salvos no pedido',
@@ -223,8 +364,10 @@ void main() {
     await enviar('1');
     expect(sessao()['etapa'], 'mistura');
     final saidas = wa.consumirMensagensSimuladas();
-    expect(jsonEncode(saidas.last),
-        contains('arroz à escolha + feijão à escolha'));
+    expect(jsonEncode(saidas.last), contains('Escolha a mistura'));
+    expect(jsonEncode(saidas.last), isNot(contains('Você escolheu')));
+    expect(jsonEncode(saidas.last), isNot(contains('Arroz branco')));
+    expect(jsonEncode(saidas.last), isNot(contains('Feijão carioca')));
 
     for (final texto in [
       '1',
@@ -272,6 +415,99 @@ void main() {
         await cardapioCom(false, true), contains('arroz + feijão à escolha'));
     expect(await cardapioCom(true, true),
         contains('arroz à escolha + feijão à escolha'));
+  });
+
+  test('cardápio segue arroz, feijão, mistura, acompanhamento e bebida',
+      () async {
+    final menu = banco.obterCardapio();
+    menu['fluxoArrozAtivo'] = true;
+    menu['fluxoFeijaoAtivo'] = true;
+    menu['arrozes'] = [
+      {'id': 'arr_1', 'nome': 'Arroz branco', 'ativo': true, 'ordem': 1}
+    ];
+    menu['feijoes'] = [
+      {'id': 'fei_1', 'nome': 'Feijão carioca', 'ativo': true, 'ordem': 1}
+    ];
+    menu['bebidas'] = [
+      {
+        'id': 'beb_1',
+        'nome': 'Refrigerante',
+        'preco': 5.0,
+        'ativo': true,
+        'ordem': 1
+      }
+    ];
+    banco.atualizarCardapio(menu);
+
+    await enviar('inicio_cardapio');
+    final resposta = jsonEncode(wa.consumirMensagensSimuladas().last);
+    final arroz = resposta.indexOf('*Arroz:*');
+    final feijao = resposta.indexOf('*Feijão:*');
+    final mistura = resposta.indexOf('*Misturas:*');
+    final acompanhamento = resposta.indexOf('*Acompanhamentos:*');
+    final bebida = resposta.indexOf('*Bebidas:*');
+    expect(arroz, greaterThanOrEqualTo(0));
+    expect(arroz < feijao && feijao < mistura, isTrue);
+    expect(mistura < acompanhamento && acompanhamento < bebida, isTrue);
+  });
+
+  test('opção 2 depois do cardápio chama atendente', () async {
+    await enviar('oi');
+    await enviar('quero ver o cardápio');
+    expect(sessao()['etapa'], 'inicio');
+    expect(jsonEncode(wa.consumirMensagensSimuladas().last),
+        contains('CARDÁPIO DO DIA'));
+
+    await enviar('2');
+    expect(sessao()['modoHumano'], true);
+    expect(jsonEncode(wa.consumirMensagensSimuladas().last),
+        contains('atendimento automático foi pausado'));
+  });
+
+  test('frase livre e cardápio no meio do pedido não consomem a quantidade',
+      () async {
+    await enviar('Quero fazer um pedido');
+    expect(sessao()['etapa'], 'tamanho');
+
+    await enviar('1');
+    await enviar('Bife acebolado');
+    await enviar('Macarrão');
+    expect(sessao()['etapa'], 'quantidade');
+
+    await enviar('Pode me mostrar o cardápio?');
+    expect(sessao()['etapa'], 'quantidade');
+    expect(jsonEncode(wa.consumirMensagensSimuladas().last),
+        contains('CARDÁPIO DO DIA'));
+
+    await enviar('2');
+    expect(sessao()['etapa'], 'adicionar_outro');
+  });
+
+  test('nomes longos aparecem completos sem depender do rótulo do botão',
+      () async {
+    const nomeLongo = 'Carne de panela com batatas e molho caseiro';
+    await wa.enviarBotoes('5514999999999', 'Escolha a mistura:', const [
+      {'id': 'mis:1', 'titulo': nomeLongo},
+      {'id': 'mis:2', 'titulo': 'Frango grelhado'},
+    ]);
+    var payload = wa.consumirMensagensSimuladas().last;
+    expect(payload['interactive']['body']['text'], contains(nomeLongo));
+    expect(
+        payload['interactive']['action']['buttons'][0]['reply']['title'], '1');
+
+    await wa.enviarLista(
+      '5514999999999',
+      texto: 'Escolha o acompanhamento:',
+      tituloBotao: 'Ver opções',
+      opcoes: const [
+        {'id': 'aco:1', 'titulo': nomeLongo},
+        {'id': 'aco:2', 'titulo': 'Batata frita'},
+      ],
+    );
+    payload = wa.consumirMensagensSimuladas().last;
+    expect(payload['interactive']['body']['text'], contains(nomeLongo));
+    expect(payload['interactive']['action']['sections'][0]['rows'][0]['title'],
+        '1');
   });
 
   test('preço visto fica congelado antes da escolha', () async {
@@ -382,6 +618,30 @@ void main() {
     expect(sessao()['dados']['itens'], isEmpty);
   });
 
+  test('atendente e ajuda continuam disponíveis na confirmação de cancelamento',
+      () async {
+    await montar();
+    await enviar('cancelar');
+    expect(sessao()['etapa'], 'confirmar_cancelamento');
+
+    await enviar('ajuda');
+    expect(sessao()['etapa'], 'confirmar_cancelamento');
+    expect(jsonEncode(wa.consumirMensagensSimuladas().last),
+        contains('confirmar o cancelamento'));
+
+    await enviar('atendente');
+    expect(sessao()['modoHumano'], true);
+  });
+
+  test('voltar na confirmação de cancelamento mantém o pedido', () async {
+    await montar();
+    await enviar('cancelar');
+    await enviar('voltar');
+
+    expect(sessao()['etapa'], 'confirmacao');
+    expect(sessao()['dados']['itens'], hasLength(1));
+  });
+
   test('mídia não avança observação; sessão expirada recomeça', () async {
     await montar();
     await enviar('voltar');
@@ -392,27 +652,38 @@ void main() {
     await enviar('conf_confirmar');
     expect(sessao()['etapa'], 'inicio');
     expect(banco.listarPedidos(), isEmpty);
+    final resposta = jsonEncode(wa.consumirMensagensSimuladas().last);
+    expect(resposta, contains('expirou por inatividade'));
+    expect(resposta, contains('Bem-vindo'));
   });
 
-  test('sessão limpa após pedido concluído ou cancelado não expira', () async {
+  test('após concluir, boas-vindas voltam após 60 minutos inativo', () async {
     await montar();
     await enviar('conf_confirmar');
-    expect(sessao()['etapa'], 'inicio');
+    wa.consumirMensagensSimuladas();
+
+    await enviar('olá');
+    final respostaImediata =
+        wa.consumirMensagensSimuladas().last['texto']?.toString() ?? '';
+    expect(respostaImediata, isNot(contains('Bem-vindo')));
 
     banco.db.execute(
-      "UPDATE sessoes SET ultima_atividade = ? WHERE telefone = ?",
+      'UPDATE sessoes SET ultima_atividade = ? WHERE telefone = ?',
       [
-        DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
+        agoraLocal().subtract(const Duration(minutes: 61)).toIso8601String(),
         '5514999999999'
       ],
     );
+    await enviar('olá novamente');
 
-    await enviar('olá');
+    final resposta = jsonEncode(wa.consumirMensagensSimuladas().last);
+    expect(resposta, contains('Bem-vindo'));
+    expect(resposta, contains('Como podemos ajudar?'));
     expect(sessao()['etapa'], 'inicio');
-    final ultimaResposta =
-        wa.consumirMensagensSimuladas().last['texto']?.toString() ?? '';
-    expect(ultimaResposta, isNot(contains('expirou por inatividade')));
+    expect(sessao()['dados']['itens'], isEmpty);
+  });
 
+  test('sessão limpa após cancelamento também expira com boas-vindas', () async {
     await montar();
     await enviar('cancelar');
     await enviar('cancelar_sim');
@@ -421,16 +692,17 @@ void main() {
     banco.db.execute(
       "UPDATE sessoes SET ultima_atividade = ? WHERE telefone = ?",
       [
-        DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
+        agoraLocal().subtract(const Duration(minutes: 61)).toIso8601String(),
         '5514999999999'
       ],
     );
 
     await enviar('olá novamente');
     final respostaAposCancelamento =
-        wa.consumirMensagensSimuladas().last['texto']?.toString() ?? '';
-    expect(
-        respostaAposCancelamento, isNot(contains('expirou por inatividade')));
+        jsonEncode(wa.consumirMensagensSimuladas().last);
+    expect(respostaAposCancelamento, contains('Bem-vindo'));
+    expect(respostaAposCancelamento, contains('Como podemos ajudar?'));
+    expect(respostaAposCancelamento, isNot(contains('expirou por inatividade')));
   });
 
   test('status só avança e controle de versão recusa alteração antiga',

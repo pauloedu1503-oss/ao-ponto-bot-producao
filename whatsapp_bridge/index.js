@@ -371,6 +371,12 @@ function transformarInterativoEmTexto(payload) {
     linhas.push('');
   }
 
+  // Quando o backend já incluiu opções numeradas para preservar nomes longos,
+  // não repete abaixo os rótulos curtos dos botões/listas.
+  if (pergunta.split('\n').some((linha) => /^\s*\d+\s*-\s+\S/.test(linha))) {
+    return pergunta;
+  }
+
   if (interactive.type === 'button') {
     const botoes =
       interactive.action?.buttons ?? [];
@@ -837,13 +843,8 @@ async function processarEntrada(
       },
     );
 
-    try {
-      await sockAtual.readMessages([
-        msg.key,
-      ]);
-    } catch {
-      // Marcar como lida não é crítico.
-    }
+    // Não confirmar leitura automaticamente durante o teste, para que o
+    // WhatsApp Business possa manter a notificação no celular.
 
     // Não espera o próximo intervalo.
     await buscarSaidas();

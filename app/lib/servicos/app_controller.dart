@@ -11,8 +11,10 @@ Map<String, dynamic> copiaMapa(Map original) =>
     Map<String, dynamic>.from(jsonDecode(jsonEncode(original)) as Map);
 
 class AppController extends ChangeNotifier {
-  static const String servidorProducao =
-      'https://ao-ponto-bot-backend.de.deplexo.com';
+  static const String servidorProducao = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://ao-ponto-bot-backend.de.deplexo.com',
+  );
 
   ApiService api = ApiService(baseUrl: servidorProducao);
 
