@@ -424,6 +424,10 @@ function transformarInterativoEmTexto(payload) {
 }
 
 async function enviarTextoConfirmado(jid, texto) {
+  return enviarConteudoConfirmado(jid, { text: texto });
+}
+
+async function enviarConteudoConfirmado(jid, conteudo) {
   let ultimaFalha = null;
 
   for (let tentativa = 1; tentativa <= 2; tentativa++) {
@@ -446,7 +450,7 @@ async function enviarTextoConfirmado(jid, texto) {
     try {
       await sockAtual.sendMessage(
         jid,
-        { text: texto },
+        conteudo,
         { messageId: id },
       );
 
@@ -501,6 +505,20 @@ async function enviarSaida(payload) {
 
     await enviarTextoConfirmado(jid, texto);
 
+    return;
+  }
+
+  if (payload.type === 'image') {
+    const imagem = payload.image ?? {};
+    const dados = imagem.data ?? '';
+    const mimetype = imagem.mimetype ?? '';
+    if (!dados || !['image/jpeg', 'image/png'].includes(mimetype)) {
+      throw new Error('Imagem do cardápio inválida.');
+    }
+    await enviarConteudoConfirmado(jid, {
+      image: Buffer.from(dados, 'base64'),
+      mimetype,
+    });
     return;
   }
 

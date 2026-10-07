@@ -248,16 +248,14 @@ void main() {
       await enviar(negacoes[i], telefone: telefone);
       final sessaoAtual = banco.obterSessao(telefone)!;
       expect(sessaoAtual['etapa'], 'confirmacao', reason: negacoes[i]);
-      expect(sessaoAtual['dados']['bebidas'], isEmpty,
-          reason: negacoes[i]);
+      expect(sessaoAtual['dados']['bebidas'], isEmpty, reason: negacoes[i]);
       wa.consumirMensagensSimuladas();
     }
 
     const telefonePositivo = '5514777700001';
     await chegarNasBebidas(telefonePositivo);
     await enviar('Quero uma Coca-Cola', telefone: telefonePositivo);
-    expect(banco.obterSessao(telefonePositivo)?['etapa'],
-        'quantidade_bebida');
+    expect(banco.obterSessao(telefonePositivo)?['etapa'], 'quantidade_bebida');
   });
 
   test('negações naturais finalizam outra marmita e outra bebida', () async {
@@ -297,15 +295,16 @@ void main() {
     ]) {
       await enviar(texto, telefone: telefoneBebida);
     }
-    expect(banco.obterSessao(telefoneBebida)?['etapa'],
-        'adicionar_outra_bebida');
+    expect(
+        banco.obterSessao(telefoneBebida)?['etapa'], 'adicionar_outra_bebida');
     await enviar('n quero', telefone: telefoneBebida);
     final sessaoBebida = banco.obterSessao(telefoneBebida)!;
     expect(sessaoBebida['etapa'], 'confirmacao');
     expect(sessaoBebida['dados']['bebidas'], hasLength(1));
   });
 
-  test('negação natural de troco e observação não perde texto válido', () async {
+  test('negação natural de troco e observação não perde texto válido',
+      () async {
     final menu = banco.obterCardapio();
     menu['bebidas'] = <dynamic>[];
     banco.atualizarCardapio(menu);
@@ -510,6 +509,40 @@ void main() {
         '1');
   });
 
+  test('coleta as quantidades configuradas de misturas e acompanhamentos',
+      () async {
+    final menu = banco.obterCardapio();
+    final pequena = (menu['tamanhos'] as List)
+        .cast<Map<String, dynamic>>()
+        .firstWhere((item) => item['id'] == 'tam_pequena');
+    pequena['quantidadeMisturas'] = 2;
+    pequena['quantidadeAcompanhamentos'] = 2;
+    banco.atualizarCardapio(menu);
+
+    await enviar('inicio_pedido');
+    await enviar('tam:tam_pequena');
+    await enviar('mis:mis_calabresa');
+    expect(sessao()['etapa'], 'mistura');
+    expect(
+        jsonEncode(wa.consumirMensagensSimuladas().last), contains('(2 de 2)'));
+
+    await enviar('mis:mis_frango');
+    expect(sessao()['etapa'], 'acompanhamento');
+    expect(
+        jsonEncode(wa.consumirMensagensSimuladas().last), contains('(1 de 2)'));
+    await enviar('aco:aco_macarrao');
+    expect(sessao()['etapa'], 'acompanhamento');
+    expect(
+        jsonEncode(wa.consumirMensagensSimuladas().last), contains('(2 de 2)'));
+    await enviar('aco:aco_batata');
+    expect(sessao()['etapa'], 'quantidade');
+    await enviar('1');
+
+    final item = (sessao()['dados']['itens'] as List).single;
+    expect(item['misturaIds'], ['mis_calabresa', 'mis_frango']);
+    expect(item['acompanhamentoIds'], ['aco_macarrao', 'aco_batata']);
+  });
+
   test('preço visto fica congelado antes da escolha', () async {
     await enviar('inicio_pedido');
     final menu = banco.obterCardapio();
@@ -614,8 +647,10 @@ void main() {
     await enviar('atendente');
     expect(sessao()['modoHumano'], true);
     expect(sessao()['dados'], isEmpty);
+    wa.consumirMensagensSimuladas();
     await bot.retomarAtendimentoHumano('5514999999999');
     expect(sessao()['dados']['itens'], isEmpty);
+    expect(wa.consumirMensagensSimuladas(), isEmpty);
   });
 
   test('atendente e ajuda continuam disponíveis na confirmação de cancelamento',
@@ -683,7 +718,8 @@ void main() {
     expect(sessao()['dados']['itens'], isEmpty);
   });
 
-  test('sessão limpa após cancelamento também expira com boas-vindas', () async {
+  test('sessão limpa após cancelamento também expira com boas-vindas',
+      () async {
     await montar();
     await enviar('cancelar');
     await enviar('cancelar_sim');
@@ -702,7 +738,8 @@ void main() {
         jsonEncode(wa.consumirMensagensSimuladas().last);
     expect(respostaAposCancelamento, contains('Bem-vindo'));
     expect(respostaAposCancelamento, contains('Como podemos ajudar?'));
-    expect(respostaAposCancelamento, isNot(contains('expirou por inatividade')));
+    expect(
+        respostaAposCancelamento, isNot(contains('expirou por inatividade')));
   });
 
   test('status só avança e controle de versão recusa alteração antiga',
@@ -830,6 +867,69 @@ void main() {
             .select("SELECT * FROM mensagens_processadas WHERE id='real_conf'")
             .single['status'],
         'done');
+  });
+
+  test('envia imagem usando upload de mídia da API oficial', () async {
+    final file = File('${temp.path}/imagem.env')
+      ..writeAsStringSync(
+          'ADMIN_PASSWORD=senha-de-teste\nWHATSAPP_ACCESS_TOKEN=token-teste\nWHATSAPP_PHONE_NUMBER_ID=numero-teste');
+    Env.carregar(file.path);
+    wa.fechar();
+    var uploadChamado = false;
+    var mensagemEnviada = false;
+    wa = WhatsAppService(banco, client: MockClient((request) async {
+      if (request.url.path.endsWith('/media')) {
+        uploadChamado = true;
+        expect(
+            request.headers['content-type'], startsWith('multipart/form-data'));
+        return http.Response(jsonEncode({'id': 'media-teste'}), 200);
+      }
+      mensagemEnviada = true;
+      final corpo = jsonDecode(request.body) as Map;
+      expect(corpo['type'], 'image');
+      expect((corpo['image'] as Map)['id'], 'media-teste');
+      return http.Response('{}', 200);
+    }));
+
+    await wa.enviarImagemCardapio(
+        '5514999999999', [0xff, 0xd8, 0xff], 'image/jpeg');
+    await wa.drenar();
+
+    expect(uploadChamado, isTrue);
+    expect(mensagemEnviada, isTrue,
+        reason: banco.db
+            .select(
+                "SELECT status, erro FROM whatsapp_saida WHERE canal='meta'")
+            .toString());
+    expect(
+        banco.db
+            .select("SELECT status FROM whatsapp_saida WHERE canal='meta'")
+            .single['status'],
+        'enviado');
+  });
+
+  test('API autenticada recebe imagem válida para o cardápio', () async {
+    final auth = AuthService();
+    final token = auth.login('senha-de-teste', 'imagem').token!;
+    final api = Api(banco, auth, bot, PushService(banco));
+    final bytes = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p8sAAAAASUVORK5CYII=',
+    );
+    final resposta = await api.handler(Request(
+      'PUT',
+      Uri.parse('http://localhost/api/cardapio/imagem'),
+      headers: {
+        'authorization': 'Bearer $token',
+        'content-type': 'image/png',
+      },
+      body: bytes,
+    ));
+
+    expect(resposta.statusCode, 200);
+    expect(
+        jsonDecode(await resposta.readAsString())['imagemConfigurada'], true);
+    expect(banco.obterImagemCardapio()!['dados'], orderedEquals(bytes));
+    await api.fechar();
   });
 
   test('migração é idempotente e preserva cardápio intencionalmente vazio', () {

@@ -167,6 +167,22 @@ class ValidacaoOperacao {
             throw ArgumentError(
                 'O tamanho “$nome” precisa ter preço maior que zero.');
           }
+          for (final campo in const [
+            'quantidadeMisturas',
+            'quantidadeAcompanhamentos',
+          ]) {
+            final bruto = item[campo] ?? 1;
+            final quantidade = bruto is num && bruto == bruto.toInt()
+                ? bruto.toInt()
+                : int.tryParse(bruto.toString());
+            if (quantidade == null || quantidade < 1 || quantidade > 5) {
+              final rotulo = campo == 'quantidadeMisturas'
+                  ? 'misturas'
+                  : 'acompanhamentos';
+              throw ArgumentError(
+                  'O tamanho “$nome” precisa pedir de 1 a 5 $rotulo.');
+            }
+          }
         }
       }
     }
@@ -216,6 +232,29 @@ class ValidacaoOperacao {
     if (!existeAtivo('acompanhamentos'))
       problemas
           .add('Cardápio > Acompanhamentos: ative pelo menos 1 acompanhamento');
+
+    final misturasAtivas = (cardapio['misturas'] as List? ?? const [])
+        .where((item) => item is Map && item['ativo'] == true)
+        .length;
+    final acompanhamentosAtivos =
+        (cardapio['acompanhamentos'] as List? ?? const [])
+            .where((item) => item is Map && item['ativo'] == true)
+            .length;
+    for (final raw in (cardapio['tamanhos'] as List? ?? const [])) {
+      if (raw is! Map || raw['ativo'] != true) continue;
+      final tamanho = raw['nome']?.toString() ?? 'Tamanho';
+      final qtdMisturas = (raw['quantidadeMisturas'] as num?)?.toInt() ?? 1;
+      final qtdAcompanhamentos =
+          (raw['quantidadeAcompanhamentos'] as num?)?.toInt() ?? 1;
+      if (qtdMisturas > misturasAtivas) {
+        problemas.add(
+            'Cardápio > $tamanho: faltam misturas ativas para completar as $qtdMisturas escolhas.');
+      }
+      if (qtdAcompanhamentos > acompanhamentosAtivos) {
+        problemas.add(
+            'Cardápio > $tamanho: faltam acompanhamentos ativos para completar as $qtdAcompanhamentos escolhas.');
+      }
+    }
 
     final entrega = config['entregaAtiva'] == true;
     final retirada = config['retiradaAtiva'] == true;

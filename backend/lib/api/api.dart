@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:shelf/shelf.dart';
@@ -105,6 +106,9 @@ class Api {
       ..put('/api/config', _protegido(_configPut))
       ..get('/api/cardapio', _protegido(_cardapioGet))
       ..put('/api/cardapio', _protegido(_cardapioPut))
+      ..get('/api/cardapio/imagem', _protegido(_cardapioImagemGet))
+      ..put('/api/cardapio/imagem', _protegido(_cardapioImagemPut))
+      ..post('/api/cardapio/imagem/remover', _protegido(_cardapioImagemRemover))
       ..get('/api/pedidos', _protegido(_pedidosGet))
       ..put('/api/pedidos/<id|[0-9]+>/status', _protegido1(_pedidoStatus))
       ..get('/api/humanos', _protegido(_humanosGet))
@@ -385,6 +389,64 @@ class Api {
   }
 
   Response _cardapioGet(Request _) => jsonResponse(banco.obterCardapio());
+
+  Response _cardapioImagemGet(Request _) {
+    final imagem = banco.obterImagemCardapio();
+    if (imagem == null) {
+      return jsonResponse({'erro': 'Não há imagem de cardápio cadastrada.'},
+          statusCode: 404);
+    }
+    return Response.ok(imagem['dados'], headers: {
+      'content-type': imagem['mimeType'] as String,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    });
+  }
+
+  Future<Response> _cardapioImagemPut(Request request) async {
+    final mimeType = (request.headers['content-type'] ?? '')
+        .split(';')
+        .first
+        .trim()
+        .toLowerCase();
+    if (!{'image/jpeg', 'image/png'}.contains(mimeType)) {
+      throw ArgumentError('Envie uma imagem JPG ou PNG.');
+    }
+    final bytes = BytesBuilder(copy: false);
+    var total = 0;
+    await for (final parte
+        in request.read().timeout(const Duration(seconds: 15))) {
+      total += parte.length;
+      if (total > 5 * 1024 * 1024) {
+        throw ArgumentError('A imagem deve ter no máximo 5 MB.');
+      }
+      bytes.add(parte);
+    }
+    final dados = bytes.takeBytes();
+    final imagemValida = mimeType == 'image/jpeg'
+        ? dados.length >= 3 &&
+            dados[0] == 0xff &&
+            dados[1] == 0xd8 &&
+            dados[2] == 0xff
+        : dados.length >= 8 &&
+            dados[0] == 0x89 &&
+            dados[1] == 0x50 &&
+            dados[2] == 0x4e &&
+            dados[3] == 0x47 &&
+            dados[4] == 0x0d &&
+            dados[5] == 0x0a &&
+            dados[6] == 0x1a &&
+            dados[7] == 0x0a;
+    if (!imagemValida)
+      throw ArgumentError('O arquivo não é uma imagem JPG ou PNG válida.');
+    banco.salvarImagemCardapio(dados, mimeType);
+    return jsonResponse(banco.obterCardapio());
+  }
+
+  Response _cardapioImagemRemover(Request _) {
+    banco.removerImagemCardapio();
+    return jsonResponse(banco.obterCardapio());
+  }
 
   Future<Response> _cardapioPut(Request request) async {
     final body = await lerJson(request);

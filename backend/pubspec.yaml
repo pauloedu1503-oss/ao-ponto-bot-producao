@@ -10,6 +10,7 @@ dependencies:
   shelf: ^1.4.2
   shelf_router: ^1.1.4
   http: ^1.2.2
+  http_parser: ^4.1.2
   sqlite3: ^2.7.5
   crypto: ^3.0.6
   googleapis_auth: ^2.3.4

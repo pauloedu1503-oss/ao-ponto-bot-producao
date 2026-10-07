@@ -1,5 +1,8 @@
-import '../widgets/editor_dialog.dart';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../widgets/editor_dialog.dart';
 import '../servicos/app_controller.dart';
 import '../widgets/ui.dart';
 
@@ -27,14 +30,19 @@ class CardapioPage extends StatelessWidget {
                 subtitulo:
                     'Alterações salvas aqui passam a valer para novos pedidos'),
             const SizedBox(height: 18),
+            _ModoCardapio(controller: controller),
+            const SizedBox(height: 16),
             _Secao(
               titulo: 'Tamanhos e preços',
               descricao:
-                  'Preço maior que zero. O valor fica congelado quando o cliente escolhe o tamanho.',
+                  'Defina o preço e quantas misturas e acompanhamentos cada tamanho exige (de 1 a 5).',
               onAdicionar: () => _editar(context, tipo: 'tamanho'),
               children: tamanhos
                   .map((i) => _ItemCard(
-                        item: i,
+                        item: {
+                          ...i,
+                          'nome': _nomeTamanho(i),
+                        },
                         subtitulo: dinheiro(i['preco']),
                         onToggle: (v) => _toggle(context, i, 'tamanhos', v),
                         onEditar: () =>
@@ -142,6 +150,16 @@ class CardapioPage extends StatelessWidget {
     return value.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
+  String _nomeTamanho(Map<String, dynamic> tamanho) {
+    final misturas = tamanho['quantidadeMisturas'] as int? ?? 1;
+    final acompanhamentos = tamanho['quantidadeAcompanhamentos'] as int? ?? 1;
+    final textoMisturas = misturas == 1 ? 'mistura' : 'misturas';
+    final textoAcompanhamentos =
+        acompanhamentos == 1 ? 'acompanhamento' : 'acompanhamentos';
+    return '${tamanho['nome']} ($misturas $textoMisturas + '
+        '$acompanhamentos $textoAcompanhamentos)';
+  }
+
   Future<void> _toggle(BuildContext context, Map<String, dynamic> item,
       String colecao, bool ativo) async {
     final novo = copiaMapa(controller.cardapio);
@@ -194,6 +212,20 @@ class CardapioPage extends StatelessWidget {
             CampoEdicao(
                 'preco', r'Preço (R$)', existente?['preco']?.toString() ?? '',
                 validar: (v) => validarDinheiro(v, permitirZero: false)),
+          if (tipo == 'tamanho') ...[
+            CampoEdicao(
+              'quantidadeMisturas',
+              'Quantas misturas? (1 a 5)',
+              '${existente?['quantidadeMisturas'] ?? 1}',
+              validar: _validarQuantidadeEscolhas,
+            ),
+            CampoEdicao(
+              'quantidadeAcompanhamentos',
+              'Quantos acompanhamentos? (1 a 5)',
+              '${existente?['quantidadeAcompanhamentos'] ?? 1}',
+              validar: _validarQuantidadeEscolhas,
+            ),
+          ],
         ], salvar: (valores) async {
       final novo = copiaMapa(base);
       final lista = novo[chave] as List;
@@ -210,9 +242,22 @@ class CardapioPage extends StatelessWidget {
       if (tipo == 'tamanho' || tipo == 'bebida') {
         item['preco'] = double.parse(valores['preco']!.replaceAll(',', '.'));
       }
+      if (tipo == 'tamanho') {
+        item['quantidadeMisturas'] = int.parse(valores['quantidadeMisturas']!);
+        item['quantidadeAcompanhamentos'] =
+            int.parse(valores['quantidadeAcompanhamentos']!);
+      }
       if (existente == null && !lista.contains(item)) lista.add(item);
       await controller.salvarCardapio(novo);
     });
+  }
+
+  String? _validarQuantidadeEscolhas(String valor) {
+    final quantidade = int.tryParse(valor);
+    if (quantidade == null || quantidade < 1 || quantidade > 5) {
+      return 'Informe um número inteiro de 1 a 5.';
+    }
+    return null;
   }
 
   Future<void> _excluir(
@@ -245,6 +290,162 @@ class CardapioPage extends StatelessWidget {
     } catch (e) {
       if (context.mounted) await mostrarErro(context, e);
     }
+  }
+}
+
+class _ModoCardapio extends StatefulWidget {
+  final AppController controller;
+  const _ModoCardapio({required this.controller});
+
+  @override
+  State<_ModoCardapio> createState() => _ModoCardapioState();
+}
+
+class _ModoCardapioState extends State<_ModoCardapio> {
+  Future<Uint8List>? _imagem;
+
+  Future<void> _selecionarImagem() async {
+    final arquivos = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+      allowedExtensions: const ['jpg', 'jpeg', 'png'],
+      allowMultiple: false,
+      withData: true,
+    );
+    if (arquivos == null || arquivos.files.isEmpty) return;
+    final selecionado = arquivos.files.single;
+    final bytes = selecionado.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Não foi possível ler essa imagem.')),
+        );
+      }
+      return;
+    }
+    if (bytes.length > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('A imagem deve ter no máximo 5 MB.')),
+        );
+      }
+      return;
+    }
+    final extensao = selecionado.extension?.toLowerCase();
+    final mimeType = extensao == 'png' ? 'image/png' : 'image/jpeg';
+    try {
+      await widget.controller.salvarImagemCardapio(bytes, mimeType);
+      if (!mounted) return;
+      setState(() => _imagem = widget.controller.api.cardapioImagem());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Imagem do cardápio salva.')),
+      );
+    } catch (e) {
+      if (mounted) await mostrarErro(context, e);
+    }
+  }
+
+  Future<void> _selecionarModo(String modo) async {
+    final atual = widget.controller.cardapio;
+    if (modo == 'imagem' && atual['imagemConfigurada'] != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Envie a imagem do cardápio primeiro.')),
+      );
+      return;
+    }
+    final novo = copiaMapa(atual)..['modoExibicao'] = modo;
+    try {
+      await widget.controller.salvarCardapio(novo);
+    } catch (e) {
+      if (mounted) await mostrarErro(context, e);
+    }
+  }
+
+  Future<void> _removerImagem() async {
+    try {
+      await widget.controller.removerImagemCardapio();
+      if (mounted) setState(() => _imagem = null);
+    } catch (e) {
+      if (mounted) await mostrarErro(context, e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cardapio = widget.controller.cardapio;
+    final modo = cardapio['modoExibicao'] == 'imagem' ? 'imagem' : 'texto';
+    final imagemConfigurada = cardapio['imagemConfigurada'] == true;
+    return PainelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Como enviar o cardápio?',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 4),
+          const Text('Escolha se o bot envia a lista em texto ou uma imagem.'),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(
+                  value: 'texto',
+                  label: Text('Cardápio texto'),
+                  icon: Icon(Icons.notes_outlined)),
+              ButtonSegment(
+                  value: 'imagem',
+                  label: Text('Cardápio imagem'),
+                  icon: Icon(Icons.image_outlined)),
+            ],
+            selected: {modo},
+            onSelectionChanged: widget.controller.salvandoCardapio
+                ? null
+                : (valores) => _selecionarModo(valores.first),
+          ),
+          const SizedBox(height: 6),
+          const Text('A imagem pode ser JPG ou PNG e ter até 5 MB.'),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed:
+                  widget.controller.salvandoCardapio ? null : _selecionarImagem,
+              icon: const Icon(Icons.upload_file),
+              label: Text(imagemConfigurada
+                  ? 'Trocar imagem do cardápio'
+                  : 'Enviar imagem do cardápio'),
+            ),
+            if (imagemConfigurada)
+              TextButton.icon(
+                onPressed:
+                    widget.controller.salvandoCardapio ? null : _removerImagem,
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Remover imagem'),
+              ),
+          ]),
+          if (imagemConfigurada) ...[
+            const SizedBox(height: 12),
+            FutureBuilder<Uint8List>(
+              future: _imagem ??= widget.controller.api.cardapioImagem(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const Text('Não foi possível carregar a prévia.');
+                }
+                if (!snapshot.hasData) {
+                  return const LinearProgressIndicator();
+                }
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 300),
+                    child: Image.memory(
+                      snapshot.data!,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) =>
+                          const Text('Não foi possível exibir a imagem.'),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 

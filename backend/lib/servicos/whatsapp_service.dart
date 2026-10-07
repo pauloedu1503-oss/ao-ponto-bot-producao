@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../banco/banco.dart';
 import '../util/env.dart';
@@ -11,6 +12,11 @@ class WhatsAppService {
   final Banco banco;
   final http.Client _client;
   final List<Map<String, dynamic>> _mensagensSimuladas = [];
+  final Map<String, ({String texto, int repeticoes, bool encaminhado})>
+      _ultimaRespostaPorTelefone = {};
+
+  static const _avisoEncaminhamento =
+      'Não consegui entender com segurança. Encaminhei a conversa para um atendente, que continuará o atendimento por aqui.';
 
   WhatsAppService(this.banco, {http.Client? client})
       : _client = client ?? http.Client();
@@ -49,6 +55,9 @@ class WhatsAppService {
       );
 
   Future<void> enviarTexto(String telefone, String texto) async {
+    final resposta = _validarRepeticao(telefone, texto);
+    if (resposta == null) return;
+    texto = resposta;
     final caracteres = texto.runes.toList();
     for (var inicio = 0; inicio < caracteres.length; inicio += 4000) {
       final fim = (inicio + 4000).clamp(0, caracteres.length);
@@ -62,6 +71,26 @@ class WhatsAppService {
         }
       });
     }
+  }
+
+  Future<void> enviarImagemCardapio(
+      String telefone, List<int> bytes, String mimeType) async {
+    const chaveRepeticao = '[imagem do cardápio]';
+    final resposta = _validarRepeticao(telefone, chaveRepeticao);
+    if (resposta == null) return;
+    if (resposta != chaveRepeticao) {
+      await _enviarTextoSemValidar(telefone, resposta);
+      return;
+    }
+    await _enviar({
+      'messaging_product': 'whatsapp',
+      'to': telefone,
+      'type': 'image',
+      'image': {
+        'data': base64Encode(bytes),
+        'mimetype': mimeType,
+      },
+    });
   }
 
   Future<void> enviarBotoes(
@@ -84,6 +113,12 @@ class WhatsAppService {
         for (var i = 0; i < originais.length; i++)
           {...originais[i], 'titulo': '${i + 1}'}
       ];
+    }
+    final resposta = _validarRepeticao(telefone, texto);
+    if (resposta == null) return;
+    if (resposta != texto) {
+      await _enviarTextoSemValidar(telefone, resposta);
+      return;
     }
     botoes = _identificarOpcoes(telefone, botoes);
     await _enviar({
@@ -144,6 +179,12 @@ class WhatsAppService {
           }
       ];
     }
+    final resposta = _validarRepeticao(telefone, texto);
+    if (resposta == null) return;
+    if (resposta != texto) {
+      await _enviarTextoSemValidar(telefone, resposta);
+      return;
+    }
     opcoes = _identificarOpcoes(telefone, opcoes);
     final rows = opcoes.map((o) {
       return {
@@ -169,6 +210,88 @@ class WhatsAppService {
         }
       }
     });
+  }
+
+  // Uma resposta idêntica pode ser repetida duas vezes. Na terceira ocorrência
+  // consecutiva, a conversa é encaminhada para evitar que o cliente fique preso
+  // em um loop. Respostas diferentes reiniciam a contagem.
+  String? _validarRepeticao(String telefone, String texto) {
+    final sessao = banco.obterSessao(telefone);
+    final dados = Map<String, dynamic>.from(
+      (sessao?['dados'] as Map?)?.cast<String, dynamic>() ?? const {},
+    );
+    if (dados['_encaminhadoPorRepeticao'] == true) return null;
+    final estadoSalvo = dados['_controleRepeticaoBot'];
+    final anterior = _ultimaRespostaPorTelefone[telefone] ??
+        (estadoSalvo is Map && estadoSalvo['texto'] is String
+            ? (
+                texto: estadoSalvo['texto'] as String,
+                repeticoes: (estadoSalvo['repeticoes'] as num?)?.toInt() ?? 0,
+                encaminhado: false,
+              )
+            : null);
+
+    final repeticoes = anterior != null && anterior.texto == texto
+        ? anterior.repeticoes + 1
+        : 1;
+    if (repeticoes <= 2) {
+      _ultimaRespostaPorTelefone[telefone] = (
+        texto: texto,
+        repeticoes: repeticoes,
+        encaminhado: false,
+      );
+      if (sessao != null && sessao['modoHumano'] != true) {
+        dados['_controleRepeticaoBot'] = {
+          'texto': texto,
+          'repeticoes': repeticoes,
+        };
+        banco.salvarSessao(
+          telefone: telefone,
+          nome: sessao['nome'] as String?,
+          etapa: sessao['etapa'] as String,
+          dados: dados,
+          modoHumano: sessao['modoHumano'] == true,
+        );
+      }
+      return texto;
+    }
+
+    banco.definirModoHumano(telefone, true, preservarDados: true);
+    final sessaoAtualizada = banco.obterSessao(telefone);
+    if (sessaoAtualizada != null) {
+      final dadosAtualizados = Map<String, dynamic>.from(
+        sessaoAtualizada['dados'] as Map,
+      )..['_encaminhadoPorRepeticao'] = true;
+      banco.salvarSessao(
+        telefone: telefone,
+        nome: sessaoAtualizada['nome'] as String?,
+        etapa: sessaoAtualizada['etapa'] as String,
+        dados: dadosAtualizados,
+        modoHumano: true,
+      );
+    }
+    _ultimaRespostaPorTelefone[telefone] = (
+      texto: _avisoEncaminhamento,
+      repeticoes: 1,
+      encaminhado: true,
+    );
+    return _avisoEncaminhamento;
+  }
+
+  Future<void> _enviarTextoSemValidar(String telefone, String texto) async {
+    final caracteres = texto.runes.toList();
+    for (var inicio = 0; inicio < caracteres.length; inicio += 4000) {
+      final fim = (inicio + 4000).clamp(0, caracteres.length);
+      await _enviar({
+        'messaging_product': 'whatsapp',
+        'to': telefone,
+        'type': 'text',
+        'text': {
+          'preview_url': false,
+          'body': String.fromCharCodes(caracteres.sublist(inicio, fim))
+        }
+      });
+    }
   }
 
   Future<void> marcarComoLida(String mensagemId) async {
@@ -527,14 +650,18 @@ class WhatsAppService {
             "UPDATE whatsapp_saida SET status = 'enviando', tentativas = tentativas + 1 WHERE id = ?",
             [row['id']]);
         try {
-          final response = await _client
-              .post(_messagesUri,
-                  headers: {
-                    'authorization': 'Bearer $_token',
-                    'content-type': 'application/json'
-                  },
-                  body: row['payload'] as String)
-              .timeout(const Duration(seconds: 10));
+          final payload =
+              jsonDecode(row['payload'] as String) as Map<String, dynamic>;
+          final response = payload['type'] == 'image'
+              ? await _enviarImagemMeta(payload)
+              : await _client
+                  .post(_messagesUri,
+                      headers: {
+                        'authorization': 'Bearer $_token',
+                        'content-type': 'application/json'
+                      },
+                      body: row['payload'] as String)
+                  .timeout(const Duration(seconds: 10));
           if (response.statusCode >= 200 && response.statusCode < 300) {
             banco.db.execute(
                 "UPDATE whatsapp_saida SET status = 'enviado', erro = NULL WHERE id = ?",
@@ -565,6 +692,55 @@ class WhatsAppService {
     } finally {
       _enviando = false;
     }
+  }
+
+  Future<http.Response> _enviarImagemMeta(Map<String, dynamic> payload) async {
+    final imagem = Map<String, dynamic>.from(payload['image'] as Map);
+    final mimeType = imagem['mimetype']?.toString() ?? '';
+    if (!{'image/jpeg', 'image/png'}.contains(mimeType)) {
+      throw const FormatException('Formato de imagem do cardápio inválido.');
+    }
+    final bytes = base64Decode(imagem['data'] as String);
+    final partesMime = mimeType.split('/');
+    final upload = http.MultipartRequest(
+      'POST',
+      Uri.parse(
+          'https://graph.facebook.com/$_graphVersion/$_phoneNumberId/media'),
+    )
+      ..headers['authorization'] = 'Bearer $_token'
+      ..fields['messaging_product'] = 'whatsapp'
+      ..files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: partesMime.last == 'png' ? 'cardapio.png' : 'cardapio.jpg',
+        contentType: MediaType(partesMime[0], partesMime[1]),
+      ));
+    final respostaUpload = await http.Response.fromStream(
+      await _client.send(upload).timeout(const Duration(seconds: 20)),
+    );
+    if (respostaUpload.statusCode < 200 || respostaUpload.statusCode >= 300) {
+      return respostaUpload;
+    }
+    final respostaJson = jsonDecode(respostaUpload.body);
+    final mediaId = respostaJson is Map ? respostaJson['id']?.toString() : null;
+    if (mediaId == null || mediaId.isEmpty) {
+      throw const FormatException(
+          'O WhatsApp não retornou o identificador da imagem.');
+    }
+    final mensagem = {
+      'messaging_product': 'whatsapp',
+      'to': payload['to'],
+      'type': 'image',
+      'image': {'id': mediaId},
+    };
+    return _client
+        .post(_messagesUri,
+            headers: {
+              'authorization': 'Bearer $_token',
+              'content-type': 'application/json',
+            },
+            body: jsonEncode(mensagem))
+        .timeout(const Duration(seconds: 10));
   }
 
   void fechar() => _client.close();

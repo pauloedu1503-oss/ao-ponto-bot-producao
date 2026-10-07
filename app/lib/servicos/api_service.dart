@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 class ApiException implements Exception {
@@ -103,6 +104,45 @@ class ApiService {
           _uri('/api/cardapio'),
           headers: _headers,
           body: jsonEncode(cardapio),
+        )
+        .timeout(const Duration(seconds: 10)));
+  }
+
+  Future<Map<String, dynamic>> salvarImagemCardapio(
+      Uint8List bytes, String mimeType) async {
+    return _map(await _client
+        .put(
+          _uri('/api/cardapio/imagem'),
+          headers: {
+            if (token != null && token!.isNotEmpty)
+              'authorization': 'Bearer $token',
+            'content-type': mimeType,
+          },
+          body: bytes,
+        )
+        .timeout(const Duration(seconds: 30)));
+  }
+
+  Future<Uint8List> cardapioImagem() async {
+    final resposta = await _client.get(
+      _uri('/api/cardapio/imagem'),
+      headers: {
+        if (token != null && token!.isNotEmpty)
+          'authorization': 'Bearer $token',
+      },
+    ).timeout(const Duration(seconds: 15));
+    if (resposta.statusCode < 200 || resposta.statusCode >= 300) {
+      _map(resposta);
+      throw const ApiException('Não foi possível abrir a imagem do cardápio.');
+    }
+    return resposta.bodyBytes;
+  }
+
+  Future<Map<String, dynamic>> removerImagemCardapio() async {
+    return _map(await _client
+        .post(
+          _uri('/api/cardapio/imagem/remover'),
+          headers: _headers,
         )
         .timeout(const Duration(seconds: 10)));
   }

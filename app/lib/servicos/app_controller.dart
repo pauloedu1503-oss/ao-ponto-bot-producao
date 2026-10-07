@@ -326,6 +326,34 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> salvarImagemCardapio(Uint8List bytes, String mimeType) async {
+    if (salvandoCardapio) {
+      throw const ApiException('Aguarde a alteração do cardápio.');
+    }
+    salvandoCardapio = true;
+    notifyListeners();
+    try {
+      cardapio = await api.salvarImagemCardapio(bytes, mimeType);
+    } finally {
+      salvandoCardapio = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> removerImagemCardapio() async {
+    if (salvandoCardapio) {
+      throw const ApiException('Aguarde a alteração do cardápio.');
+    }
+    salvandoCardapio = true;
+    notifyListeners();
+    try {
+      cardapio = await api.removerImagemCardapio();
+    } finally {
+      salvandoCardapio = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> alterarStatusPedido(Map<String, dynamic> pedido, String status,
       {String? motivoCancelamento}) async {
     final id = (pedido['id'] as num).toInt();

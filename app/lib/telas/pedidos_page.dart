@@ -174,9 +174,22 @@ class _PedidoCard extends StatelessWidget {
       final i = Map<String, dynamic>.from(raw as Map);
       final base =
           '${i['arrozNome'] ?? 'Arroz'} + ${i['feijaoNome'] ?? 'Feijão'}';
-      return '${i['quantidade']}x ${i['tamanhoNome']} • $base • ${i['misturaNome']}';
+      return '${i['quantidade']}x ${i['tamanhoNome']} • $base • '
+          '${_nomesEscolhasItem(i, 'misturaNomes', 'misturaNome')}';
     }).join(' | ');
   }
+}
+
+String _nomesEscolhasItem(
+  Map<String, dynamic> item,
+  String campoLista,
+  String campoLegado,
+) {
+  final nomes = item[campoLista];
+  if (nomes is List && nomes.isNotEmpty) {
+    return nomes.map((nome) => nome.toString()).join(' + ');
+  }
+  return item[campoLegado]?.toString() ?? '';
 }
 
 class _DetalhePedido extends StatefulWidget {
@@ -248,7 +261,8 @@ class _DetalhePedidoState extends State<_DetalhePedido> {
                     style: const TextStyle(fontWeight: FontWeight.w800)),
                 Text(
                     '${i['arrozNome'] ?? 'Arroz'} + ${i['feijaoNome'] ?? 'Feijão'}\n'
-                    '${i['misturaNome']} • ${i['acompanhamentoNome']}',
+                    '${_nomesEscolhasItem(i, 'misturaNomes', 'misturaNome')} • '
+                    '${_nomesEscolhasItem(i, 'acompanhamentoNomes', 'acompanhamentoNome')}',
                     style: const TextStyle(color: Colors.black54)),
                 const SizedBox(height: 10),
               ],

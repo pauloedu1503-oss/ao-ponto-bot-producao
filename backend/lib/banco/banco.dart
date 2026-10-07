@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:sqlite3/sqlite3.dart';
 
@@ -71,6 +72,15 @@ class Banco {
         valor TEXT NOT NULL
       );
     ''');
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS cardapio_imagem (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        mime_type TEXT NOT NULL,
+        dados BLOB NOT NULL
+      );
+    ''');
+    db.execute(
+        "INSERT OR IGNORE INTO meta (chave, valor) VALUES ('menu_mode', 'texto')");
 
     db.execute('''
       CREATE TABLE IF NOT EXISTS cardapio_itens (
@@ -79,9 +89,15 @@ class Banco {
         nome TEXT NOT NULL,
         preco REAL,
         ativo INTEGER NOT NULL DEFAULT 1,
-        ordem INTEGER NOT NULL DEFAULT 0
+        ordem INTEGER NOT NULL DEFAULT 0,
+        quantidade_misturas INTEGER NOT NULL DEFAULT 1,
+        quantidade_acompanhamentos INTEGER NOT NULL DEFAULT 1
       );
     ''');
+    _adicionarColunaSeAusente(
+        'cardapio_itens', 'quantidade_misturas', 'INTEGER NOT NULL DEFAULT 1');
+    _adicionarColunaSeAusente('cardapio_itens', 'quantidade_acompanhamentos',
+        'INTEGER NOT NULL DEFAULT 1');
 
     db.execute('''
       CREATE TABLE IF NOT EXISTS bebidas (
@@ -604,7 +620,7 @@ class Banco {
         ) ??
         1;
     final rows = db.select(
-        'SELECT id, tipo, nome, preco, ativo, ordem FROM cardapio_itens ORDER BY tipo, ordem, nome');
+        'SELECT id, tipo, nome, preco, ativo, ordem, quantidade_misturas, quantidade_acompanhamentos FROM cardapio_itens ORDER BY tipo, ordem, nome');
     final bebidasRows = db.select(
         'SELECT id, nome, preco, ativo, ordem FROM bebidas ORDER BY ordem, nome');
     final basesRows = db.select(
@@ -616,10 +632,19 @@ class Banco {
           'preco': r['preco'],
           'ativo': (r['ativo'] as int) == 1,
           'ordem': r['ordem'],
+          if (r['tipo'] == 'tamanho') ...{
+            'quantidadeMisturas': r['quantidade_misturas'],
+            'quantidadeAcompanhamentos': r['quantidade_acompanhamentos'],
+          },
         };
     final itens = rows.map(item).toList();
     return {
       'versao': versao,
+      'modoExibicao': db
+          .select("SELECT valor FROM meta WHERE chave='menu_mode'")
+          .first['valor'],
+      'imagemConfigurada':
+          db.select('SELECT 1 FROM cardapio_imagem WHERE id=1').isNotEmpty,
       'tamanhos': itens.where((e) => e['tipo'] == 'tamanho').toList(),
       'misturas': itens.where((e) => e['tipo'] == 'mistura').toList(),
       'acompanhamentos':
@@ -665,6 +690,57 @@ class Banco {
     };
   }
 
+  Map<String, dynamic>? obterImagemCardapio() {
+    final rows = db.select(
+        'SELECT mime_type, dados FROM cardapio_imagem WHERE id=1 LIMIT 1');
+    if (rows.isEmpty) return null;
+    return {
+      'mimeType': rows.first['mime_type'] as String,
+      'dados': Uint8List.fromList((rows.first['dados'] as List).cast<int>()),
+    };
+  }
+
+  void salvarImagemCardapio(Uint8List dados, String mimeType) {
+    db.execute('BEGIN IMMEDIATE');
+    try {
+      db.execute('''
+        INSERT INTO cardapio_imagem (id, mime_type, dados) VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET mime_type=excluded.mime_type, dados=excluded.dados
+      ''', [mimeType, dados]);
+      _incrementarVersaoCardapio();
+      db.execute('COMMIT');
+    } catch (_) {
+      db.execute('ROLLBACK');
+      rethrow;
+    }
+    log('INFO', 'imagem_cardapio_atualizada',
+        'Imagem do cardápio substituída.');
+  }
+
+  void removerImagemCardapio() {
+    db.execute('BEGIN IMMEDIATE');
+    try {
+      db.execute('DELETE FROM cardapio_imagem WHERE id=1');
+      db.execute("UPDATE meta SET valor='texto' WHERE chave='menu_mode'");
+      _incrementarVersaoCardapio();
+      db.execute('COMMIT');
+    } catch (_) {
+      db.execute('ROLLBACK');
+      rethrow;
+    }
+    log('INFO', 'imagem_cardapio_removida', 'Imagem do cardápio removida.');
+  }
+
+  void _incrementarVersaoCardapio() {
+    final versao = int.tryParse(db
+            .select("SELECT valor FROM meta WHERE chave='menu_version'")
+            .first['valor'] as String) ??
+        1;
+    db.execute("UPDATE meta SET valor=? WHERE chave='menu_version'", [
+      (versao + 1).toString(),
+    ]);
+  }
+
   Map<String, dynamic> atualizarCardapio(Map<String, dynamic> corpo) {
     final atual = obterCardapio();
     final esperada = (corpo['versao'] as num?)?.toInt() ?? -1;
@@ -674,6 +750,14 @@ class Banco {
     }
 
     ValidacaoOperacao.validarCardapioEstrutural(corpo);
+    final modoExibicao = corpo['modoExibicao']?.toString() ?? 'texto';
+    if (!{'texto', 'imagem'}.contains(modoExibicao)) {
+      throw ArgumentError('Selecione cardápio em texto ou imagem.');
+    }
+    if (modoExibicao == 'imagem' && obterImagemCardapio() == null) {
+      throw ArgumentError(
+          'Envie uma imagem do cardápio antes de selecioná-la.');
+    }
     final config = obterConfiguracao();
     final dadosConfig = Map<String, dynamic>.from(config['dados'] as Map);
     if (dadosConfig['estadoBot'] == 'atendendo') {
@@ -696,8 +780,10 @@ class Banco {
       db.execute('DELETE FROM bebidas');
       db.execute('DELETE FROM bases_opcoes');
       final stmt = db.prepare('''
-        INSERT INTO cardapio_itens (id, tipo, nome, preco, ativo, ordem)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO cardapio_itens (
+          id, tipo, nome, preco, ativo, ordem,
+          quantidade_misturas, quantidade_acompanhamentos
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ''');
       try {
         for (final entry in colecoes.entries) {
@@ -716,6 +802,12 @@ class Banco {
                   : null,
               item['ativo'] == false ? 0 : 1,
               (item['ordem'] as num?)?.toInt() ?? (i + 1),
+              entry.value == 'tamanho'
+                  ? (item['quantidadeMisturas'] as num?)?.toInt() ?? 1
+                  : 1,
+              entry.value == 'tamanho'
+                  ? (item['quantidadeAcompanhamentos'] as num?)?.toInt() ?? 1
+                  : 1,
             ]);
           }
         }
@@ -775,6 +867,8 @@ class Banco {
           [corpo['fluxoArrozAtivo'] == true ? '1' : '0']);
       db.execute("UPDATE meta SET valor=? WHERE chave='fluxo_feijao_ativo'",
           [corpo['fluxoFeijaoAtivo'] == true ? '1' : '0']);
+      db.execute(
+          "UPDATE meta SET valor=? WHERE chave='menu_mode'", [modoExibicao]);
       final novaVersao = esperada + 1;
       db.execute("UPDATE meta SET valor = ? WHERE chave='menu_version'",
           [novaVersao.toString()]);
@@ -829,9 +923,9 @@ class Banco {
   }
 
   void definirModoHumano(String telefone, bool ativo,
-      {bool criarAlerta = true}) {
+      {bool criarAlerta = true, bool preservarDados = false}) {
     final sessao = obterSessao(telefone);
-    if (ativo && criarAlerta) {
+    if (ativo && criarAlerta && !preservarDados) {
       salvarSessao(
           telefone: telefone,
           nome: sessao?['nome'] as String?,
