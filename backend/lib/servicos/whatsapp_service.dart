@@ -8,6 +8,12 @@ import 'package:http_parser/http_parser.dart';
 import '../banco/banco.dart';
 import '../util/env.dart';
 
+class MidiaWhatsApp {
+  final List<int> bytes;
+  final String mimeType;
+  const MidiaWhatsApp(this.bytes, this.mimeType);
+}
+
 class WhatsAppService {
   final Banco banco;
   final http.Client _client;
@@ -43,6 +49,29 @@ class WhatsAppService {
   bool get metaAtiva => configurado && !bridgeAtivo;
 
   bool get disponivel => bridgeAtivo || metaAtiva;
+
+  Future<MidiaWhatsApp?> baixarMidia(String mediaId, {String? mimeType}) async {
+    if (!metaAtiva || mediaId.trim().isEmpty) return null;
+    final metadata = await _client
+        .get(
+          Uri.parse('https://graph.facebook.com/$_graphVersion/$mediaId'),
+          headers: {'authorization': 'Bearer $_token'},
+        )
+        .timeout(const Duration(seconds: 10));
+    if (metadata.statusCode < 200 || metadata.statusCode >= 300) return null;
+    final json = jsonDecode(metadata.body);
+    final url = json is Map ? json['url']?.toString() : null;
+    if (url == null || url.isEmpty) return null;
+    final resposta = await _client
+        .get(Uri.parse(url), headers: {'authorization': 'Bearer $_token'})
+        .timeout(const Duration(seconds: 15));
+    if (resposta.statusCode < 200 || resposta.statusCode >= 300) return null;
+    final mime = resposta.headers['content-type']?.split(';').first.trim();
+    return MidiaWhatsApp(
+      resposta.bodyBytes,
+      mime?.isNotEmpty == true ? mime! : (mimeType ?? 'application/octet-stream'),
+    );
+  }
 
   List<Map<String, dynamic>> consumirMensagensSimuladas() {
     final copia = List<Map<String, dynamic>>.from(_mensagensSimuladas);

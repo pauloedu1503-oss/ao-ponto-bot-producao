@@ -28,7 +28,7 @@ void main() {
               'properties': {
                 'tipo': {
                   'type': 'string',
-                  'enum': ['pedido', 'duvida', 'escolha']
+                  'enum': ['pedido', 'duvida', 'escolha', 'humano']
                 },
                 'texto': {'type': 'string'},
                 'itens': {
@@ -79,8 +79,26 @@ void main() {
                   },
                 },
                 'finalizarItens': {'type': 'boolean'},
+                'motivoHumano': {
+                  'type': ['string', 'null'],
+                  'enum': [
+                    'fora_cardapio',
+                    'duvida_nao_respondida',
+                    'reclamacao',
+                    'reclamacao_grave',
+                    'solicitacao_explicita',
+                    'midia_nao_processada',
+                    null,
+                  ],
+                },
               },
-              'required': ['tipo', 'texto', 'itens', 'finalizarItens'],
+              'required': [
+                'tipo',
+                'texto',
+                'itens',
+                'finalizarItens',
+                'motivoHumano',
+              ],
               'additionalProperties': false,
             },
           },
@@ -95,6 +113,7 @@ void main() {
                     'texto': 'Olá.',
                     'itens': [],
                     'finalizarItens': false,
+                    'motivoHumano': null,
                   })
                 }
               }

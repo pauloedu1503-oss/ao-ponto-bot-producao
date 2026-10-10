@@ -16,6 +16,11 @@ class BotPage extends StatelessWidget {
     final estado = dados['estadoBot']?.toString() ?? 'fechado';
     final problemas = controller.dashboard['problemasProntidao'] as List? ?? [];
     final pendentes = controller.dashboard['enviosPendentes'] as num? ?? 0;
+    final iaInterpretacoes =
+        controller.dashboard['iaInterpretacoes24h'] as num? ?? 0;
+    final iaFallbacks = controller.dashboard['iaFallbacks24h'] as num? ?? 0;
+    final iaTransferencias =
+        controller.dashboard['iaTransferencias24h'] as num? ?? 0;
     final mensagens =
         Map<String, dynamic>.from(dados['mensagens'] as Map? ?? {});
     final horarios = Map<String, dynamic>.from(dados['horarios'] as Map? ?? {});
@@ -49,6 +54,31 @@ class BotPage extends StatelessWidget {
                         icon: const Icon(Icons.mark_unread_chat_alt_outlined),
                         label: const Text('Ver envios com falha')),
                 ])),
+            const SizedBox(height: 16),
+            PainelCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Saúde da IA',
+                      style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 6),
+                  const Text('Últimas 24 horas',
+                      style: TextStyle(color: Colors.black54)),
+                  const SizedBox(height: 12),
+                  Wrap(spacing: 18, runSpacing: 8, children: [
+                    Text('Interpretações: $iaInterpretacoes'),
+                    Text('Fallbacks: $iaFallbacks'),
+                    Text('Transferências: $iaTransferencias'),
+                  ]),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Use os logs para revisar casos em que a IA precisou de ajuda ou foi transferida para um atendente.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 16),
             PainelCard(
               child: Column(
@@ -242,6 +272,14 @@ class BotPage extends StatelessWidget {
                                     ],
                                   )),
                                 ]),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Transferência: ${_origemTransferencia(h)} • ${_motivoTransferencia(h)}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.deepOrange,
+                                  ),
+                                ),
                                 const SizedBox(height: 10),
                                 Wrap(spacing: 8, runSpacing: 8, children: [
                                   if (h['alertaAtivo'] == true)
@@ -271,6 +309,24 @@ class BotPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _origemTransferencia(Map<String, dynamic> h) {
+    return h['transferenciaOrigem'] == 'ia' ? 'pela IA' : 'manual';
+  }
+
+  String _motivoTransferencia(Map<String, dynamic> h) {
+    const motivos = {
+      'reclamacao': 'reclamação do cliente',
+      'reclamacao_grave': 'reclamação grave',
+      'solicitacao_explicita': 'solicitação do cliente',
+      'fora_cardapio': 'item fora do cardápio',
+      'duvida_nao_respondida': 'dúvida não respondida',
+    };
+    return motivos[h['transferenciaMotivo']] ??
+        (h['transferenciaMotivo']?.toString().isNotEmpty == true
+            ? h['transferenciaMotivo'].toString()
+            : 'não informado');
   }
 
   Future<void> _confirmarRetomar(

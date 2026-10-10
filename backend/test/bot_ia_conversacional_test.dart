@@ -156,8 +156,48 @@ void main() {
     await send('quero uma marmita');
 
     expect(sessao()['etapa'], 'ia_pedido');
-    expect(textos().join('\n'), contains('Qual tamanho você prefere'));
+    expect(textos().join('\n'), contains('Qual será o tamanho'));
     expect(dados().containsKey('aguardaBoasVindas'), isFalse);
+  });
+
+  test('localização compartilhada é salva sem transferir para humano',
+      () async {
+    salvarSessao('endereco', {
+      'clienteNome': 'Teste',
+      'boasVindasEnviada': true,
+      'itens': <dynamic>[],
+    });
+
+    await bot.processar(MensagemWhatsApp(
+      id: 'localizacao_${DateTime.now().microsecondsSinceEpoch}',
+      telefone: '5514666600001',
+      nome: 'Teste',
+      texto: 'Minha casa',
+      tipo: 'location',
+      latitude: -22.123,
+      longitude: -48.456,
+    ));
+
+    final localizacao = dados()['ultimaLocalizacao'] as Map;
+    expect(localizacao['latitude'], -22.123);
+    expect(localizacao['longitude'], -48.456);
+    expect(sessao()['modoHumano'], isNot(true));
+    expect(textos().single, contains('Recebi sua localização'));
+  });
+
+  test('reclamação grave transfere, palavra fora de contexto não', () async {
+    await send('estou com frio');
+    expect(sessao()['modoHumano'], isNot(true));
+    textos();
+
+    salvarSessao('inicio', {
+      'clienteNome': 'Teste',
+      'boasVindasEnviada': true,
+      'itens': <dynamic>[],
+    });
+    await send('passei mal depois de comer');
+
+    expect(sessao()['modoHumano'], isTrue);
   });
 
   test('retomada do painel espera a mensagem em andamento terminar', () async {
@@ -496,7 +536,8 @@ void main() {
     expect(banco.listarPedidos(), isEmpty);
   });
 
-  test('sim isolado não cancela sem intenção explícita de cancelar', () async {
+  test('sim isolado confirma o cancelamento quando essa pergunta foi feita',
+      () async {
     salvarSessao('confirmar_cancelamento', {
       'clienteNome': 'Teste',
       'boasVindasEnviada': true,
@@ -507,13 +548,13 @@ void main() {
 
     await send('sim');
 
-    expect(sessao()['etapa'], 'confirmar_cancelamento');
-    expect(itensSalvos(), hasLength(1));
+    expect(sessao()['etapa'], 'inicio');
+    expect(itensSalvos(), isEmpty);
     expect(banco.listarPedidos(), isEmpty);
-    expect(textos().join('\n'), contains('sim, cancelar pedido'));
+    expect(textos().join('\n'), contains('cancelado'));
   });
 
-  test('resposta vaga no cancelamento não apaga o pedido', () async {
+  test('isso também confirma o cancelamento no contexto da pergunta', () async {
     salvarSessao('confirmar_cancelamento', {
       'clienteNome': 'Teste',
       'boasVindasEnviada': true,
@@ -524,10 +565,10 @@ void main() {
 
     await send('isso');
 
-    expect(sessao()['etapa'], 'confirmar_cancelamento');
-    expect(itensSalvos(), hasLength(1));
+    expect(sessao()['etapa'], 'inicio');
+    expect(itensSalvos(), isEmpty);
     expect(banco.listarPedidos(), isEmpty);
-    expect(textos().join('\n'), contains('sim, cancelar pedido'));
+    expect(textos().join('\n'), contains('cancelado'));
   });
 
   test('troca a mistura de uma marmita já escolhida sem duplicar', () async {
@@ -554,6 +595,114 @@ void main() {
     expect(itens, hasLength(1));
     expect(itens.single['misturaNome'], 'Filé de frango');
     expect(sessao()['etapa'], 'adicionar_outro');
+  });
+
+  test('corrige mistura pelo nome antigo e preserva a outra mistura', () async {
+    usarIaComErro();
+    final menu = banco.obterCardapio();
+    final pequena = (menu['tamanhos'] as List)
+        .cast<Map<String, dynamic>>()
+        .firstWhere((item) => item['nome'] == 'Pequena');
+    pequena['quantidadeMisturas'] = 2;
+    banco.atualizarCardapio(menu);
+    salvarSessao('ia_pedido', {
+      'clienteNome': 'Teste',
+      'boasVindasEnviada': true,
+      'itens': <dynamic>[],
+      'rascunhoPedidoIA': {
+        'itens': [
+          {
+            'indice': 1,
+            'tamanho': 'Pequena',
+            'quantidade': 1,
+            'quantidadeMisturas': 2,
+            'misturas': ['Bife acebolado', 'Calabresa acebolada'],
+            'mistura': 'Bife acebolado',
+            'acompanhamento': 'Batata',
+          }
+        ],
+      },
+    });
+
+    await send('troca o bife por frango');
+
+    final itemAtual = itensSalvos().single;
+    expect(itemAtual['misturaIds'], ['mis_frango', 'mis_calabresa']);
+    expect(
+        itemAtual['misturaNomes'], ['Filé de frango', 'Calabresa acebolada']);
+  });
+
+  test('corrige uma mistura pelo nome antigo no resumo sem refazer escolhas',
+      () async {
+    final menu = banco.obterCardapio();
+    final pequena = (menu['tamanhos'] as List)
+        .cast<Map<String, dynamic>>()
+        .firstWhere((item) => item['nome'] == 'Pequena');
+    pequena['quantidadeMisturas'] = 2;
+    banco.atualizarCardapio(menu);
+    final item = itemSalvo(mistura: 'Bife acebolado')
+      ..['quantidadeMisturas'] = 2
+      ..['misturaIds'] = ['mis_bife', 'mis_calabresa']
+      ..['misturaNomes'] = ['Bife acebolado', 'Calabresa acebolada'];
+    salvarSessao('confirmacao', {
+      'clienteNome': 'Teste',
+      'boasVindasEnviada': true,
+      'itens': [item],
+      'recebimento': 'retirada',
+      'pagamento': 'pix',
+      'bebidas': <dynamic>[],
+    });
+
+    await send('troca o bife por frango');
+
+    final itemAtual = itensSalvos().single;
+    expect(itemAtual['misturaIds'], ['mis_frango', 'mis_calabresa']);
+    expect(
+        itemAtual['misturaNomes'], ['Filé de frango', 'Calabresa acebolada']);
+    expect(textos().join('\n'), contains('CONFIRA SEU PEDIDO'));
+    expect(textos().join('\n'), isNot(contains('Quais você prefere?')));
+  });
+
+  test('não troca mistura por acompanhamento nem o contrário', () async {
+    for (final etapa in ['ia_pedido', 'confirmacao']) {
+      if (etapa == 'ia_pedido') {
+        salvarSessao(etapa, {
+          'clienteNome': 'Teste',
+          'boasVindasEnviada': true,
+          'itens': <dynamic>[],
+          'rascunhoPedidoIA': {
+            'itens': [
+              {
+                'indice': 1,
+                'tamanho': 'Pequena',
+                'quantidade': 1,
+                'mistura': 'Calabresa acebolada',
+                'acompanhamento': 'Batata',
+              }
+            ],
+          },
+        });
+      } else {
+        salvarSessao(etapa, {
+          'clienteNome': 'Teste',
+          'boasVindasEnviada': true,
+          'itens': [itemSalvo()],
+          'recebimento': 'retirada',
+          'pagamento': 'pix',
+          'bebidas': <dynamic>[],
+        });
+      }
+
+      await send('troca a batata por frango');
+
+      expect(sessao()['etapa'], etapa);
+      expect(textos().join('\n'), contains('categorias diferentes'));
+      textos();
+    }
+    if (sessao()['etapa'] == 'confirmacao') {
+      expect(itensSalvos().single['misturaNome'], 'Calabresa acebolada');
+      expect(itensSalvos().single['acompanhamentoNome'], 'Batata');
+    }
   });
 
   test('pergunta qual linha alterar quando o resumo tem combinações diferentes',

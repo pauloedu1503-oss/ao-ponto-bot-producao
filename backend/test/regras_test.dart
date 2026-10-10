@@ -833,6 +833,38 @@ void main() {
     await api.fechar();
   });
 
+  test('mensagem secundária de lote agrupado continua deduplicada após retry',
+      () async {
+    const idAgrupado = 'wa_secundaria_ja_processada';
+    banco.registrarMensagemAgrupadaComoProcessada(idAgrupado);
+    banco.db.execute(
+      'INSERT INTO webhook_entrada(id,payload,criado_em) VALUES (?,?,?)',
+      [
+        idAgrupado,
+        jsonEncode({
+          'id': idAgrupado,
+          'telefone': '5514999999999',
+          'nome': 'Teste',
+          'texto': 'conf_confirmar',
+          'tipo': 'text',
+        }),
+        DateTime.now().toUtc().toIso8601String(),
+      ],
+    );
+    final api = Api(banco, AuthService(), bot, PushService(banco));
+
+    await api.processarPendentes();
+
+    expect(wa.consumirMensagensSimuladas(), isEmpty);
+    expect(banco.db.select('SELECT * FROM webhook_entrada'), isEmpty);
+    expect(
+      banco.db.select('SELECT status FROM mensagens_processadas WHERE id = ?',
+          [idAgrupado]).single['status'],
+      'done',
+    );
+    await api.fechar();
+  });
+
   test('payload de tipo errado retorna erro JSON 400', () async {
     final auth = AuthService();
     final token = auth.login('senha-de-teste', 'local').token!;
@@ -1022,6 +1054,72 @@ void main() {
     banco.resolverEnvio(primeiro['id'], 'descartar');
     await wa.drenar();
     expect(chamadas, 2);
+  });
+
+  test('fluxo ponta a ponta de entrega com Pix cria o pedido confirmado',
+      () async {
+    await montar(entrega: true, pagamento: 'pag_pix');
+    expect(sessao()['etapa'], 'confirmacao');
+    expect(banco.listarPedidos(), isEmpty);
+
+    await enviar('conf_confirmar');
+
+    final pedidos = banco.listarPedidos();
+    expect(pedidos, hasLength(1));
+    expect(pedidos.single['status'], 'novo');
+    expect(pedidos.single['recebimento'], 'entrega');
+    expect(pedidos.single['pagamento'], 'pix');
+    expect(pedidos.single['endereco'], contains('Rua das Flores'));
+  });
+
+  test('fluxo ponta a ponta de retirada com dinheiro e troco conclui',
+      () async {
+    await montar(pagamento: 'pag_dinheiro');
+    expect(sessao()['etapa'], 'confirmacao');
+
+    await enviar('conf_confirmar');
+
+    final pedido = banco.listarPedidos().single;
+    expect(pedido['recebimento'], 'retirada');
+    expect(pedido['pagamento'], 'dinheiro');
+    expect(pedido['troco_para'], isNull);
+    expect(pedido['status'], 'novo');
+  });
+
+  test('pedido incompleto atravessa correção, observação e confirmação',
+      () async {
+    await enviar('inicio_pedido');
+    await enviar('1');
+    await enviar('1');
+    await enviar('1');
+    await enviar('2');
+    await enviar('outro_nao');
+    await enviar('rec_retirada');
+    await enviar('pag_pix');
+    await enviar('sem cebola e capricha no molho');
+    expect(sessao()['etapa'], 'confirmacao');
+    expect(sessao()['dados']['observacao'], contains('sem cebola'));
+  });
+
+  test('transforma recorrência de erros em sugestões de melhoria', () {
+    banco.log('WARN', 'ia_indisponivel_fallback_bot', 'timeout');
+    banco.log('WARN', 'ia_indisponivel_fallback_bot', 'cota');
+    banco.log('ERROR', 'bot_erro', 'StateError');
+
+    final sugestoes = banco.sugestoesMelhoria();
+    final ia = sugestoes
+        .firstWhere((item) => item['evento'] == 'ia_indisponivel_fallback_bot');
+    expect(ia['quantidade'], 2);
+    expect(ia['titulo'], contains('disponibilidade'));
+    expect(ia['acao'], isNotEmpty);
+  });
+
+  test('ignora logs antigos ao gerar sugestões', () {
+    banco.db.execute(
+      "INSERT INTO logs (nivel, evento, detalhes, criado_em) VALUES (?, ?, ?, ?)",
+      ['ERROR', 'bot_erro', 'antigo', '2000-01-01T00:00:00.000Z'],
+    );
+    expect(banco.sugestoesMelhoria(), isEmpty);
   });
 }
 

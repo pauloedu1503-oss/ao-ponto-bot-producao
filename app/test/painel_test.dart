@@ -135,7 +135,7 @@ void main() {
       ];
       c.notifyListeners();
       await tester.pump();
-      await tester.tap(find.text('Pedidos').last);
+      await tester.tap(find.byIcon(Icons.receipt_long_outlined).last);
       await tester.pumpAndSettle();
       expect(find.text('Cliente novo'), findsOneWidget);
       expect(tester.takeException(), isNull);

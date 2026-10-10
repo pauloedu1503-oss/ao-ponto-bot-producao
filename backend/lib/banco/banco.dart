@@ -191,6 +191,11 @@ class Banco {
         ultima_atividade TEXT NOT NULL
       );
     ''');
+    _adicionarColunaSeAusente(
+        'sessoes', 'transferencia_origem', "TEXT NOT NULL DEFAULT 'manual'");
+    _adicionarColunaSeAusente(
+        'sessoes', 'transferencia_motivo', "TEXT NOT NULL DEFAULT ''");
+    _adicionarColunaSeAusente('sessoes', 'transferencia_em', 'TEXT');
 
     db.execute('''
       CREATE TABLE IF NOT EXISTS mensagens_processadas (
@@ -923,7 +928,10 @@ class Banco {
   }
 
   void definirModoHumano(String telefone, bool ativo,
-      {bool criarAlerta = true, bool preservarDados = false}) {
+      {bool criarAlerta = true,
+      bool preservarDados = false,
+      String origem = 'manual',
+      String motivo = ''}) {
     final sessao = obterSessao(telefone);
     if (ativo && criarAlerta && !preservarDados) {
       salvarSessao(
@@ -962,6 +970,15 @@ class Banco {
       ]);
     } else {
       db.execute('UPDATE push_humano SET ativo=0 WHERE telefone=?', [telefone]);
+    }
+    if (ativo) {
+      db.execute(
+          'UPDATE sessoes SET transferencia_origem=?, transferencia_motivo=?, transferencia_em=? WHERE telefone=?',
+          [origem, motivo, agoraIso(), telefone]);
+    } else {
+      db.execute(
+          "UPDATE sessoes SET transferencia_origem='manual', transferencia_motivo='', transferencia_em=NULL WHERE telefone=?",
+          [telefone]);
     }
     log('INFO', ativo ? 'modo_humano_ativado' : 'modo_humano_desativado',
         telefone);
@@ -1035,6 +1052,7 @@ class Banco {
   List<Map<String, dynamic>> listarSessoesHumanas() {
     final rows = db.select('''
       SELECT s.telefone, s.nome, s.ultima_atividade,
+        s.transferencia_origem, s.transferencia_motivo, s.transferencia_em,
         COALESCE(p.ativo, 0) AS alerta_ativo
       FROM sessoes s
       LEFT JOIN push_humano p ON p.telefone = s.telefone
@@ -1046,6 +1064,9 @@ class Banco {
               'telefone': r['telefone'],
               'nome': r['nome'] ?? '',
               'ultimaAtividade': r['ultima_atividade'],
+              'transferenciaOrigem': r['transferencia_origem'] ?? 'manual',
+              'transferenciaMotivo': r['transferencia_motivo'] ?? '',
+              'transferenciaEm': r['transferencia_em'],
               'alertaAtivo': (r['alerta_ativo'] as int) == 1,
             })
         .toList();
@@ -1301,6 +1322,15 @@ class Banco {
         [sucesso ? 'done' : 'failed', agoraIso(), id]);
   }
 
+  void registrarMensagemAgrupadaComoProcessada(String id) {
+    db.execute('''
+      INSERT INTO mensagens_processadas (id, status, atualizado_em)
+      VALUES (?, 'done', ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status='done', atualizado_em=excluded.atualizado_em
+    ''', [id, agoraIso()]);
+  }
+
   Map<String, dynamic> dashboard() {
     final chave = hojeChave();
     final rows = db.select('''
@@ -1317,6 +1347,17 @@ class Banco {
         .select('SELECT COALESCE(MAX(id),0) AS id FROM pedidos')
         .first['id'] as int;
     final config = obterConfiguracao();
+    final iaEventos = db.select('''
+      SELECT evento, COUNT(*) AS quantidade
+      FROM logs
+      WHERE julianday(criado_em) >= julianday('now', '-1 day')
+        AND evento IN ('ia_interpretacao', 'ia_indisponivel_fallback_bot')
+      GROUP BY evento
+    ''');
+    final iaResumo = <String, int>{
+      for (final row in iaEventos)
+        row['evento'].toString(): (row['quantidade'] as num).toInt(),
+    };
     return {
       'pedidosHoje': rows['pedidos'] ?? 0,
       'vendasHoje': (rows['vendas'] as num?)?.toDouble() ?? 0.0,
@@ -1339,6 +1380,12 @@ class Banco {
           )
           .first['n'],
       'estadoManual': (config['dados'] as Map<String, dynamic>)['estadoBot'],
+      'iaInterpretacoes24h': iaResumo['ia_interpretacao'] ?? 0,
+      'iaFallbacks24h': iaResumo['ia_indisponivel_fallback_bot'] ?? 0,
+      'iaTransferencias24h': db.select('''
+            SELECT COUNT(*) AS quantidade FROM sessoes
+            WHERE modo_humano = 1 AND julianday(transferencia_em) >= julianday('now', '-1 day')
+          ''').first['quantidade'],
     };
   }
 
@@ -1350,6 +1397,73 @@ class Banco {
     } catch (_) {
       stderr.writeln('Falha ao gravar log: $evento');
     }
+  }
+
+  void registrarDiagnosticoConversa(Map<String, dynamic> diagnostico) {
+    log('INFO', 'qualidade_conversa', jsonEncode(diagnostico));
+  }
+
+  Map<String, dynamic> relatorioInteligencia({int dias = 7}) {
+    final limiteDias = dias.clamp(1, 90);
+    final rows = db.select('''
+      SELECT detalhes, criado_em FROM logs
+      WHERE evento = 'qualidade_conversa'
+        AND julianday(criado_em) >= julianday('now', ?)
+      ORDER BY id DESC
+    ''', ['-$limiteDias days']);
+    final porCategoria = <String, int>{};
+    final porEtapa = <String, int>{};
+    final exemplos = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      Map<String, dynamic> item;
+      try {
+        item = Map<String, dynamic>.from(jsonDecode(row['detalhes']) as Map);
+      } catch (_) {
+        continue;
+      }
+      final categorias = (item['categorias'] as List? ?? const [])
+          .map((valor) => valor.toString())
+          .where((valor) => valor.isNotEmpty);
+      for (final categoria in categorias) {
+        porCategoria[categoria] = (porCategoria[categoria] ?? 0) + 1;
+      }
+      final etapa = item['etapaAntes']?.toString() ?? 'inicio';
+      porEtapa[etapa] = (porEtapa[etapa] ?? 0) + 1;
+      if (exemplos.length < 20 && categorias.isNotEmpty) {
+        exemplos.add({
+          'categorias': categorias.toList(),
+          'etapa': etapa,
+          'etapaDepois': item['etapaDepois'],
+          'tipoIa': item['tipoIa'],
+          'criadoEm': row['criado_em'],
+        });
+      }
+    }
+    final sugestoes = <String, String>{
+      'ia_fallback':
+          'Revisar disponibilidade da IA e criar teste para a entrada que caiu no fluxo determinístico.',
+      'transferencia':
+          'Revisar o motivo da transferência e adicionar variações ao fluxo de atendimento humano.',
+      'ambiguidade':
+          'Revisar sinônimos e exigir confirmação quando houver mais de uma opção possível.',
+      'correcao_cliente':
+          'Adicionar a frase corrigida aos testes e revisar a associação com a etapa atual.',
+      'etapa_sem_avanco':
+          'Verificar se a pergunta foi repetida ou se faltou tratar uma resposta válida.',
+      'pedido_incompleto':
+          'Adicionar um teste de pedido completo dividido em mensagens e validar os campos obrigatórios.',
+    };
+    return {
+      'periodoDias': limiteDias,
+      'totalDiagnosticos': rows.length,
+      'porCategoria': porCategoria,
+      'porEtapa': porEtapa,
+      'sugestoes': porCategoria.map((categoria, _) => MapEntry(
+          categoria,
+          sugestoes[categoria] ??
+              'Revisar os exemplos desse caso e criar um teste de regressão.')),
+      'exemplos': exemplos,
+    };
   }
 
   List<Map<String, dynamic>> enviosComFalha() => db.select('''
@@ -1395,6 +1509,77 @@ class Banco {
               'criadoEm': r['criado_em'],
             })
         .toList();
+  }
+
+  /// Converte recorrência de falhas operacionais em ações sugeridas para
+  /// revisão. O sistema não altera prompts ou regras sozinho: ele só aponta
+  /// evidências agrupadas para uma decisão segura no painel.
+  List<Map<String, dynamic>> sugestoesMelhoria({int dias = 7}) {
+    final limiteDias = dias.clamp(1, 90);
+    final rows = db.select('''
+      SELECT evento, nivel, COUNT(*) AS quantidade,
+             MAX(criado_em) AS ultima_ocorrencia
+      FROM logs
+      WHERE julianday(criado_em) >= julianday('now', ?)
+        AND evento IN (
+          'ia_indisponivel_fallback_bot', 'bot_erro',
+          'bot_transacao_desfeita', 'api_erro', 'worker_erro',
+          'midia_nao_processada'
+        )
+      GROUP BY evento, nivel
+      ORDER BY quantidade DESC, ultima_ocorrencia DESC
+    ''', ['-$limiteDias days']);
+
+    final catalogo = <String, Map<String, String>>{
+      'ia_indisponivel_fallback_bot': {
+        'titulo': 'Revisar disponibilidade da IA',
+        'acao':
+            'Verificar erros de rede, limite ou configuração da Groq e ampliar o fallback determinístico.',
+        'prioridade': 'alta',
+      },
+      'bot_erro': {
+        'titulo': 'Investigar falhas no fluxo do bot',
+        'acao':
+            'Reproduzir as mensagens próximas do horário indicado e criar um teste de regressão.',
+        'prioridade': 'alta',
+      },
+      'bot_transacao_desfeita': {
+        'titulo': 'Revisar consistência da sessão',
+        'acao':
+            'Verificar a transição que desfez a transação e garantir que o rascunho continue íntegro.',
+        'prioridade': 'alta',
+      },
+      'api_erro': {
+        'titulo': 'Revisar erros da API',
+        'acao':
+            'Agrupar a rota afetada e adicionar teste para o payload que provocou a falha.',
+        'prioridade': 'media',
+      },
+      'worker_erro': {
+        'titulo': 'Revisar processamento da fila',
+        'acao':
+            'Verificar mensagens pendentes, duplicadas ou presas e criar teste do ciclo de reprocessamento.',
+        'prioridade': 'alta',
+      },
+      'midia_nao_processada': {
+        'titulo': 'Melhorar interpretação de mídia',
+        'acao':
+            'Revisar áudio, imagem e legenda do evento e adicionar um caso de teste para a mídia recebida.',
+        'prioridade': 'media',
+      },
+    };
+
+    return rows.map((row) {
+      final evento = row['evento'].toString();
+      final base = catalogo[evento]!;
+      return {
+        'evento': evento,
+        'nivel': row['nivel'],
+        'quantidade': row['quantidade'],
+        'ultimaOcorrencia': row['ultima_ocorrencia'],
+        ...base,
+      };
+    }).toList();
   }
 
   String gerarBackup({String? diretorio}) {
